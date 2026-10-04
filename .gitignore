@@ -1,0 +1,7 @@
+gaia_file_list.txt
+gaia_dr3_6d.csv
+progress.txt
+_chunk_tmp.csv.gz
+test_out.csv
+*.csv.gz
+__pycache__/
