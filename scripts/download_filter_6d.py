@@ -1,29 +1,33 @@
-"""Download every GaiaSource_*.csv.gz bulk chunk, stream-filter to only the
-rows with a measured radial_velocity (the full 6D phase-space subset this
-project needs), append those rows to a single growing output CSV, then
-delete the downloaded chunk before moving to the next. Resumable: tracks
-completed chunks in progress.txt so an interrupted run can pick back up
-without re-downloading or re-counting anything already done.
+"""Download every GaiaSource_*.csv.gz bulk chunk IN PARALLEL, stream-filter
+each to only the rows with a measured radial_velocity (the full 6D
+phase-space subset this project needs), and append those rows to a single
+growing output CSV. Resumable: tracks completed chunks in progress.txt.
 
-~753GB passes through temporarily (one ~230MB chunk at a time), but nothing
-but the filtered output (expected far smaller -- only ~33M of ~1.8B stars
-have a measured radial velocity) is kept.
+Gaia's bulk CSVs are actually ECSV (astropy): ~1000 lines of "#"-prefixed
+YAML column metadata precede the real CSV header line, and null values are
+the literal string "null", not an empty field -- both handled below.
 """
 import csv
 import gzip
 import io
 import os
-import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import requests
 
 BASE = "https://gaia.eu-1.cdn77-storage.com/"
 LIST_FILE = "gaia_file_list.txt"
 OUT_FILE = "gaia_dr3_6d.csv"
 PROGRESS_FILE = "progress.txt"
-TMP_FILE = "_chunk_tmp.csv.gz"
-
 RV_COL = "radial_velocity"
+N_WORKERS = 16
+
+write_lock = threading.Lock()
+progress_lock = threading.Lock()
+header_written = threading.Event()
+
 
 def load_file_list():
     files = []
@@ -34,89 +38,103 @@ def load_file_list():
                 files.append((key, int(size)))
     return files
 
+
 def load_progress():
     if not os.path.exists(PROGRESS_FILE):
         return set()
     with open(PROGRESS_FILE) as f:
         return set(line.strip() for line in f if line.strip())
 
+
 def mark_done(key):
-    with open(PROGRESS_FILE, "a") as f:
-        f.write(key + "\n")
+    with progress_lock:
+        with open(PROGRESS_FILE, "a") as f:
+            f.write(key + "\n")
 
-def download(key, dest):
+
+def download_bytes(key):
     url = BASE + key
-    with requests.get(url, stream=True, timeout=120) as r:
-        r.raise_for_status()
-        with open(dest, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1 << 20):
-                f.write(chunk)
+    r = requests.get(url, timeout=180)
+    r.raise_for_status()
+    return r.content
 
-def process_one(key, writer, header_written):
-    download(key, TMP_FILE)
-    kept = 0
-    total = 0
-    with gzip.open(TMP_FILE, "rt", newline="") as gz:
-        # Gaia's bulk CSVs are actually ECSV (astropy): ~1000 lines of "#"-prefixed
-        # YAML column metadata precede the real CSV header line. Skip past those.
-        line = gz.readline()
+
+def filter_chunk(raw_gz_bytes):
+    """Returns (header_row_or_None, [filtered_rows], total_rows)."""
+    buf = io.BytesIO(raw_gz_bytes)
+    with gzip.GzipFile(fileobj=buf) as gz:
+        text_stream = io.TextIOWrapper(gz, encoding="utf-8", newline="")
+        line = text_stream.readline()
         while line.startswith("#"):
-            line = gz.readline()
-        reader = csv.reader([line] + list(gz))
+            line = text_stream.readline()
+        reader = csv.reader([line] + list(text_stream))
         header = next(reader)
         rv_idx = header.index(RV_COL)
-        if not header_written[0]:
-            writer.writerow(header)
-            header_written[0] = True
+        kept_rows = []
+        total = 0
         for row in reader:
             total += 1
-            # Nulls are the literal string "null", not an empty field.
             if row[rv_idx] != "null" and row[rv_idx] != "":
-                writer.writerow(row)
-                kept += 1
-    os.remove(TMP_FILE)
-    return total, kept
+                kept_rows.append(row)
+        return header, kept_rows, total
+
+
+def process_one(key):
+    attempt = 0
+    while True:
+        try:
+            raw = download_bytes(key)
+            header, rows, total = filter_chunk(raw)
+            return key, header, rows, total
+        except Exception as e:
+            attempt += 1
+            if attempt >= 5:
+                print(f"  GIVING UP on {key} after 5 attempts: {e}", flush=True)
+                return key, None, [], 0
+            time.sleep(5)
+
 
 def main():
     files = load_file_list()
     done = load_progress()
     remaining = [(k, s) for k, s in files if k not in done]
-    print(f"{len(files)} total chunks, {len(done)} already done, {len(remaining)} remaining", flush=True)
+    print(f"{len(files)} total chunks, {len(done)} already done, {len(remaining)} remaining, "
+          f"{N_WORKERS} parallel workers", flush=True)
 
-    header_written = [os.path.exists(OUT_FILE) and os.path.getsize(OUT_FILE) > 0]
-    out_mode = "a" if header_written[0] else "w"
+    if os.path.exists(OUT_FILE) and os.path.getsize(OUT_FILE) > 0:
+        header_written.set()
+    out_mode = "a" if header_written.is_set() else "w"
+    outf = open(OUT_FILE, out_mode, newline="")
+    writer = csv.writer(outf)
 
-    with open(OUT_FILE, out_mode, newline="") as outf:
-        writer = csv.writer(outf)
-        t0 = time.time()
-        total_kept = 0
-        for i, (key, size) in enumerate(remaining):
-            attempt = 0
-            while True:
-                try:
-                    total, kept = process_one(key, writer, header_written)
-                    outf.flush()
-                    break
-                except Exception as e:
-                    attempt += 1
-                    print(f"  retry {attempt} for {key}: {e}", flush=True)
-                    if os.path.exists(TMP_FILE):
-                        os.remove(TMP_FILE)
-                    if attempt >= 5:
-                        print(f"  GIVING UP on {key} after 5 attempts", flush=True)
-                        total, kept = 0, 0
-                        break
-                    time.sleep(5)
-            total_kept += kept
+    t0 = time.time()
+    total_kept = 0
+    completed = 0
+
+    with ThreadPoolExecutor(max_workers=N_WORKERS) as pool:
+        futures = {pool.submit(process_one, key): key for key, size in remaining}
+        for future in as_completed(futures):
+            key, header, rows, total = future.result()
+            with write_lock:
+                if header is not None and not header_written.is_set():
+                    writer.writerow(header)
+                    header_written.set()
+                for row in rows:
+                    writer.writerow(row)
+                outf.flush()
             mark_done(key)
+            completed += 1
+            total_kept += len(rows)
             elapsed = time.time() - t0
-            rate = (i + 1) / elapsed if elapsed > 0 else 0
-            eta_min = (len(remaining) - i - 1) / rate / 60 if rate > 0 else float('inf')
-            print(f"[{i+1}/{len(remaining)}] {key}: {total} rows, {kept} with RV "
+            rate = completed / elapsed if elapsed > 0 else 0
+            eta_min = (len(remaining) - completed) / rate / 60 if rate > 0 else float('inf')
+            print(f"[{completed}/{len(remaining)}] {key}: {total} rows, {len(rows)} with RV "
                   f"(running kept total: {total_kept}) -- {rate*3600:.1f} chunks/hr, ETA {eta_min:.0f} min",
                   flush=True)
 
+    outf.close()
     print("ALL DONE", flush=True)
+
 
 if __name__ == "__main__":
     main()
