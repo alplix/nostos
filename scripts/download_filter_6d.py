@@ -18,9 +18,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 BASE = "https://gaia.eu-1.cdn77-storage.com/"
-LIST_FILE = "gaia_file_list.txt"
-OUT_FILE = "gaia_dr3_6d.csv"
-PROGRESS_FILE = "progress.txt"
+DATA_DIR = "D:/nostos_data"
+LIST_FILE = f"{DATA_DIR}/gaia_file_list.txt"
+OUT_FILE = f"{DATA_DIR}/gaia_dr3_6d.csv"
+PROGRESS_FILE = f"{DATA_DIR}/progress.txt"
 RV_COL = "radial_velocity"
 N_WORKERS = 16
 
