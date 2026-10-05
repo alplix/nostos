@@ -5,3 +5,4 @@ _chunk_tmp.csv.gz
 test_out.csv
 *.csv.gz
 __pycache__/
+build/

@@ -18,13 +18,17 @@ A handful of papers (most notably Bailer-Jones et al. for 'Oumuamua and Borisov)
 
 ## Status
 
-Just started. No code yet. See the roadmap below.
+Gaia DR3 6D-phase-space download in progress (see `scripts/download_filter_6d.py`,
+resumable via `scripts/progress.txt`). Core orbit integrator written and
+validated (see `src/` and `tests/`, and `NOTES_method_selection.md` for the
+choices made so far and what's still open). No Gaia-star or ISO orbit code
+yet, no BOINC app yet.
 
 ## Roadmap
 
-- [ ] **Method selection** — settle on a specific Galactic potential model (e.g. `MWPotential2014`), the backward-integration time window (existing literature stays within a few Myr, for good reason — orbits become chaotic/unreliable further back), and the Monte Carlo sampling scheme for orbital uncertainty.
+- [~] **Method selection** — integrator + a first-pass Milky Way potential are in place; the backward-integration time window and Monte Carlo sampling scheme are still undecided. See `NOTES_method_selection.md`.
 - [ ] **Data** — pull the Gaia DR3 full-6D-phase-space subset (sources with measured radial velocity) via the Gaia archive TAP service; keep only the columns actually needed (position, parallax, proper motion, radial velocity, and their errors).
-- [ ] **Core integrator** — a small, fast C/C++ orbit integrator: analytic potential force law + a standard integrator (leapfrog or RK4). Differentially tested against a reference implementation (e.g. Python's `galpy`) on known test orbits before anything else is built on top of it.
+- [~] **Core integrator** — `src/integrator.h` (leapfrog) + `src/potential.c` (point-mass + a first-pass Milky Way model) written and validated against exact conservation laws and the analytic Kepler solution (`tests/test_kepler.c`, all passing). The Milky Way potential's own parameters are a placeholder (see caveat in `src/potential.h`) and still need checking against a published model or `galpy` before being trusted for real encounter searches.
 - [ ] **Encounter search kernel** — the actual per-(Gaia star, ISO Monte Carlo sample) closest-approach calculation. Validated against hand-computed small test cases.
 - [ ] **Pipeline validation** — run the full thing against 'Oumuamua and Borisov and confirm it independently finds the same candidate origin stars the published literature already identified.
 - [ ] **BOINC app** — CPU first (matching this project family's usual order), work generator that chunks the Gaia catalog, assimilator that collects genuine close encounters.
