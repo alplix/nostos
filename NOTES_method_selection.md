@@ -799,3 +799,33 @@ now ruled out as the dominant cause. The inbound/outbound fix above resolved the
 part of the original discrepancy; what's left (~1.4-15x) is a smaller, genuinely open question,
 plausibly within the kind of real astrophysical/methodological uncertainty both research groups
 already operate under, rather than a further bug in this codebase.
+
+## First preview scan with the fixed binary, and a small duplicate-row issue, 2026-10-07
+
+Ran the corrected `gaia_scan.c` (both the window-sizing fix and the inbound/outbound fix) on
+the first 14M rows as a before/after sanity check (the 50pc straight-line threshold, same as
+before): 56,767 candidates found (vs. 35,518 for the same 14M rows under the old, buggy
+outbound-direction binary -- a real change, as expected, since the whole trajectory moved).
+Zero WINDOW_LIMITED flags, confirming the window-sizing fix (bugs #1-#3) still holds at this
+scale with the direction fix applied too. Saved as
+`D:/nostos_data/scan_oumuamua_14M_fixed_preview.txt` (candidate lines only -- note for next
+time: redirecting gaia_scan.c's stdout and stderr to the SAME file, as a quick test command
+here initially did, mixes its progress/diagnostic lines in with the actual candidate lines and
+breaks `summarize_candidates.py`'s parser; keep them in separate files/streams as the tool's
+own design already assumes).
+
+Running `summarize_candidates.py` on this preview surfaced a real, if small, data-quality
+issue: 237 of 56,767 candidate rows (0.4%) are exact duplicates by source_id, with IDENTICAL
+computed values both times -- consistent with the same star's row appearing twice in the
+downloaded Gaia CSV itself (gaia_scan.c just screens whatever rows the file hands it; this
+isn't a screening-logic bug). Root cause not yet tracked down (a plausible guess:
+download_filter_6d.py's resume logic re-processing an already-partially-written chunk after an
+interruption, but not confirmed). Fixed pragmatically in `summarize_candidates.py` by
+deduplicating on source_id (keep first occurrence) rather than chasing the upstream cause
+immediately, since the effect is small and shouldn't block using the tool's output today.
+
+Promising sign from the corrected results: the lowest-relative-velocity "plausible" candidates
+now have genuinely LOW speeds (0.71-3.36 km/s for the ones checked), not the implausible
+hundreds-of-km/s values that dominated the top of the old, buggy-direction candidate list --
+exactly the kind of result Bailer-Jones et al.'s own preference for low relative velocity as a
+plausibility signal would predict for a correctly-computed scan.

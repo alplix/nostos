@@ -38,15 +38,31 @@ def parse_line(line):
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "D:/nostos_data/scan_oumuamua_candidates.txt"
     rows = []
+    seen_source_ids = set()
+    n_duplicates = 0
     with open(path) as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             source_id, fields = parse_line(line)
+            if source_id in seen_source_ids:
+                # A real, if small (~0.4% in one 14M-row preview run), data-quality issue: the
+                # same source_id's row appears more than once in gaia_scan.c's output, with
+                # IDENTICAL computed values both times -- consistent with the same star's row
+                # appearing twice in the downloaded Gaia CSV itself (gaia_scan.c just screens
+                # whatever rows the file hands it), not a bug in the screening logic. Root cause
+                # not yet tracked down (possibly overlapping/retried chunks in
+                # download_filter_6d.py's resume logic) -- deduplicating here, by keeping only
+                # the first occurrence, is a pragmatic guard against double-counting a candidate
+                # rather than a fix for whatever is producing the duplicate row upstream.
+                n_duplicates += 1
+                continue
+            seen_source_ids.add(source_id)
             rows.append((source_id, fields))
 
-    print(f"{len(rows)} candidates total\n")
+    print(f"{len(rows)} candidates total" +
+          (f" ({n_duplicates} duplicate source_id rows skipped)" if n_duplicates else "") + "\n")
 
     unreliable = [r for r in rows if r[1]["window_limited"]]
     reliable = [r for r in rows if not r[1]["window_limited"]]
