@@ -110,32 +110,76 @@ and closer to the real Milky Way's ~220-235 km/s than the old placeholder's
 curve was, as expected since these are now parameters A&S themselves fit to
 reproduce that behavior, not a hand-picked guess.
 
-## Backward-integration time window — OPEN
+## Backward-integration time window — RESOLVED, 2026-10-06
 
-Not decided yet. The literature (Bailer-Jones et al. for 'Oumuamua/Borisov)
-generally trusts results only within a few Myr of backward integration,
-because: (a) the Galactic potential itself is only known approximately, so
-orbit errors grow with integration time, and (b) for encounters further back
-than that, the star's own position has often diverged too much from a
-straight extrapolation for a "close encounter" to mean much anyway. A
-reasonable starting range to test against is probably 1-10 Myr, but this
-should be settled by literature review (what exact window did Bailer-Jones
-et al. use, and did they justify a specific cutoff?) rather than guessed.
+Settled by reading the actual precedent this project explicitly aims to
+scale up: Bailer-Jones et al. 2019 ("The Dynamics of Interstellar Asteroids
+and Comets within the Galaxy: an Assessment of Local Candidate Source
+Regions for 1I/'Oumuamua and 2I/Borisov", arXiv:1911.02473) -- NOT guessed.
+They integrate to -100 Myr but explicitly quantify how reliability degrades:
+"a back-integration can only expect to be accurate to within 15 pc and
+2 km/s at -10 Myr, dropping steeply to 400 pc and 10 km/s at -100 Myr", and
+conclude a traced path is trustworthy "perhaps as far back as 50 Myr or
+more." This is an order of magnitude longer than this file's earlier guess
+of "1-10 Myr" -- worth having actually checked rather than shipped a guess.
 
-## Monte Carlo sampling scheme for orbital uncertainty — OPEN
+Adopted: integrate up to **100 Myr** backward (so a real deep-past encounter
+isn't silently missed), but tag every reported encounter with how far back
+it occurred and treat anything beyond **50 Myr** as lower-confidence --
+report it, don't discard it, but don't claim it with the same weight as a
+closer-in-time encounter. This matches Bailer-Jones' own practice rather
+than inventing a harder cutoff. The exact position/velocity error-vs-time
+curve they quote (15 pc/2 km/s at 10 Myr -> 400 pc/10 km/s at 100 Myr) is
+itself a useful sanity-check target once this project's own potential/
+integrator combination can be tested against a known-divergent pair of
+nearby trajectories -- not implemented yet, but worth keeping as a concrete
+number to validate against later rather than taken purely on faith.
 
-Not decided yet. Needs: how to resample each ISO's orbital elements from its
-published covariance/uncertainty (multivariate normal in orbital-element
-space, or in observed-quantities space propagated through to orbital
-elements?), and how many realizations per ISO (literature often uses
-hundreds to a few thousand). Also needs the equivalent question for Gaia
-stars' own astrometric errors (parallax/proper-motion/RV uncertainties are
-non-negligible for the full-6D subset and will dominate over the ISO's own
-uncertainty for some stars) — whether Gaia-side Monte Carlo sampling is even
-necessary for a first pass, or whether using each star's best-fit 6D value
-once is good enough until a real candidate encounter is found (then MC only
-that specific star more carefully). Leaning toward the latter for the first
-working pipeline, to keep the per-star-per-WU cost down, but not decided.
+## Monte Carlo sampling scheme for orbital uncertainty — RESOLVED, 2026-10-06
+
+Also settled by reading Bailer-Jones et al. 2019 rather than guessing (see
+above for the citation). Their actual practice, quoted directly:
+- **100 clones per ISO**: "we characterize the uncertainty in [...]
+  'Oumuamua's orbit by generating 100 clones of 'Oumuamua, each having an
+  initial velocity randomly sampled from a distribution whose covariance
+  matrix is recorded."
+- **100 clones per candidate STAR too**: "100 clones of 'Oumuamua interact
+  with 100 clones of each star in each of our integrations" -- sampled "from
+  Gaussian distributions with means and standard deviations given by the
+  nominal values and their corresponding uncertainties" (i.e. Gaussian in
+  the *observed astrometric quantities* -- parallax, proper motion, radial
+  velocity -- not in orbital-element space directly, then propagated
+  through to phase space the normal way).
+
+This directly contradicts this file's earlier "leaning toward" skipping
+per-star Monte Carlo for a first pass -- that leaning was reasonable given
+the real cost concern below, but Bailer-Jones' own paper is better evidence
+than a guess, so it wins. Adopted as a **two-stage scheme** that keeps their
+full rigor where it matters while staying tractable at Gaia-DR3 scale (they
+tested a literal handful of candidate stars per ISO, not ~33 million):
+
+1. **Stage 1 (exhaustive, cheap)** -- every Gaia star's single best-fit 6D
+   value against all 100 of the ISO's own Monte Carlo clones (so the ISO's
+   own uncertainty, generally the larger source of error for a fresh
+   discovery, is never skipped even in the cheap pass). This is what
+   actually runs across the full ~33M-star catalog in the distributed
+   BOINC work units.
+2. **Stage 2 (shortlist refinement)** -- any star whose stage-1 closest
+   approach falls under some threshold distance gets the full Bailer-Jones
+   treatment: 100 star clones (sampled Gaussian in parallax/pmra/pmdec/RV
+   from that star's own Gaia-reported errors) against the 100 ISO clones,
+   10,000 total pairings, run as a separate, much smaller follow-up batch
+   (by then there are at most a few hundred shortlisted stars per ISO, not
+   millions) -- this is where a candidate's reported encounter
+   distance/time actually gets its real uncertainty estimate, matching how
+   Bailer-Jones report their own results.
+
+Still open: the exact stage-1 threshold distance that defines "shortlisted"
+(their paper's own candidates were all within a few pc; a reasonable first
+guess is an order of magnitude looser, e.g. a few tens of pc, to avoid
+missing a real candidate at the cost of a larger but still tractable stage-2
+batch -- not tuned yet, there's no real data to tune it against until the
+Gaia download finishes and stage 1 actually runs once).
 
 ## Coordinate transform (written, partially validated)
 
