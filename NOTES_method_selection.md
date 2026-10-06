@@ -304,3 +304,78 @@ suspiciously close to pi) rather than a unit-conversion sign flip. Caught by
 comparing against the real reference value, not by any internal check --
 exactly the kind of bug internal-consistency tests can't catch and the whole
 reason this cross-check was worth doing.
+
+## Pipeline validation against HIP 3757 (real result, partially matched, genuinely open)
+
+First end-to-end run of the full chain (orbital elements -> coords ->
+potential/integrator -> encounter search) against a real, independently
+published result: HIP 3757, Bailer-Jones et al. 2018's own closest
+'Oumuamua-encounter candidate (arXiv:1809.09009, Gaia DR2 source_id
+2525688198820543360). See `tests/test_pipeline_oumuamua_hip3757.c` for the
+full numbers and reasoning; summary here.
+
+**Real bug found and fixed**: the first attempt evaluated
+`orbital_elements_to_galactocentric()` at `t_myr=0` (exactly at perihelion)
+and fed that directly in as 'Oumuamua's "current" state for the long
+backward integration. That's wrong -- at perihelion the two-body velocity
+is still mid-deflection by the Sun's gravity (perihelion is the turning
+point, not where the outbound asymptotic velocity has settled), and using
+it pointed the ISO's velocity in a meaningfully wrong direction: a
+straight-line extrapolation found the closest approach in the FUTURE
+(+0.39 Myr) instead of the past, the opposite of Bailer-Jones' reported
+-0.99 Myr. Fixed by evaluating ~9 years after perihelion instead (within
+this module's own documented "fractions of a year to a few years" domain
+of validity, and roughly "now" in real terms) -- confirmed correct by
+checking 'Oumuamua's resulting heliocentric speed matches its well-known
+~26 km/s asymptotic excess velocity (at t=0 it's instead ~87 km/s, its much
+higher perihelion speed). This flipped the sign to match Bailer-Jones.
+
+**Still unresolved**: even with that fix, the found encounter (-0.067 Myr,
+24.73 pc, barely below the present-day 24.88 pc separation) doesn't match
+Bailer-Jones' reported -0.99 Myr / 0.60 pc -- roughly 15x and 40x off
+respectively, though the relative speed (39 km/s found vs their 24.7 km/s)
+is at least the right order of magnitude. Investigated and ruled out so
+far:
+- **Wrong star/cross-match**: HIP 3757's computed total proper motion from
+  its individual Gaia pmra/pmdec components (sqrt(182.16^2+120.16^2) =
+  218.2 mas/yr) matches the paper's own quoted total (218.22 mas/yr) to 4
+  significant figures -- this is almost certainly the right star/solution.
+- **Gravity vs straight-line**: both give essentially the same shallow
+  minimum for this pair (gravity has negligible effect over such a short,
+  shallow encounter), so the discrepancy isn't in `potential.c`/
+  `integrator.h`.
+- **A convention bug in `coords.c`'s `astrometry_to_galactocentric()`**:
+  hand-re-derived the whole formula from scratch (r_hat/ra_hat/dec_hat unit
+  vectors, the v_ra/v_dec/v_r combination) against the standard reference
+  form (Johnson & Soderblom 1987 / ESA Hipparcos documentation) and it
+  matches exactly; also hand-computed HIP 3757's Galactocentric velocity by
+  hand through every step (ICRS construction -> A_G rotation -> Sun-motion
+  addition) and got the same numbers this project's code produces to 3
+  decimal places. This function had never been checked against a real
+  external star before this test (only round-trip self-consistency, which
+  can't catch a convention error -- see coords.h's own caveat) -- it's now
+  at least hand-verified, even though the overall encounter number still
+  doesn't match.
+- **A_G itself being wrong**: already independently validated via
+  `test_horizons_crosscheck.c` (same matrix, 'Oumuamua's position/velocity
+  matched real Horizons data to ~1e-6).
+
+**Not yet ruled out**: 'Oumuamua's known non-gravitational (cometary
+outgassing) acceleration near perihelion (Micheli et al. 2018) isn't
+modeled by this project's pure two-body `orbital_elements.c` -- plausible
+in principle, though not expected to matter much by ~9 years post-perihelion
+when that effect has long tapered off; whether Bailer-Jones propagated to a
+genuinely different reference epoch/frame before their own integration than
+assumed here; or their reported number being a Monte-Carlo MEDIAN that
+differs substantially from this single best-fit trajectory (possible, but a
+40x distance gap is a lot to pin on sampling alone given how shallow and
+unambiguous the single best-fit minimum is here).
+
+Left as a genuinely open item rather than silently adjusted to pass --
+consistent with this project's own stated rule: "if it can't reproduce
+known results, it doesn't get to report new ones" applies to catching this
+kind of gap, not just to pretending it isn't there. Worth revisiting once
+real Gaia catalog data is available and a few more candidate stars (not
+just HIP 3757) can be checked the same way -- a systematic pattern across
+several candidates would narrow down the hypotheses above a lot faster than
+reasoning about one star in isolation.

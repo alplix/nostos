@@ -3,7 +3,7 @@ CFLAGS = -O2 -std=c99 -Wall -Wextra -lm
 
 .PHONY: test clean
 
-test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_santillan build/test_coords build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck build/test_montecarlo build/test_mc_search
+test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_santillan build/test_coords build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck build/test_montecarlo build/test_mc_search build/test_pipeline_oumuamua_hip3757
 	./build/test_kepler
 	./build/test_milkyway_galpy
 	./build/test_milkyway_allen_santillan
@@ -13,6 +13,7 @@ test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_sant
 	./build/test_horizons_crosscheck
 	./build/test_montecarlo
 	./build/test_mc_search
+	./build/test_pipeline_oumuamua_hip3757
 
 build:
 	mkdir -p build
@@ -43,6 +44,9 @@ build/test_montecarlo: tests/test_montecarlo.c src/montecarlo.c src/montecarlo.h
 
 build/test_mc_search: tests/test_mc_search.c src/mc_search.c src/mc_search.h src/montecarlo.c src/encounter.c src/potential.c src/coords.c | build
 	$(CC) $(CFLAGS) tests/test_mc_search.c src/mc_search.c src/montecarlo.c src/encounter.c src/potential.c src/coords.c -o build/test_mc_search -lm
+
+build/test_pipeline_oumuamua_hip3757: tests/test_pipeline_oumuamua_hip3757.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c | build
+	$(CC) $(CFLAGS) tests/test_pipeline_oumuamua_hip3757.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c -o build/test_pipeline_oumuamua_hip3757 -lm
 
 clean:
 	rm -rf build

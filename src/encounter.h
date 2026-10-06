@@ -9,8 +9,10 @@
 typedef struct {
     double min_distance_kpc;
     double time_at_min_myr; // time since the start of this integration call (same sign as total_time)
-    Vec3 star_pos_at_min;   // Galactocentric position of each body when the minimum occurred --
-    Vec3 iso_pos_at_min;    // useful for diagnostics/plotting, not needed for the distance itself
+    Vec3 star_pos_at_min;   // Galactocentric position/velocity of each body when the minimum
+    Vec3 iso_pos_at_min;    // occurred -- useful for diagnostics/plotting and, for velocity,
+    Vec3 star_vel_at_min;   // for reporting encounter speed (a real plausibility factor in the
+    Vec3 iso_vel_at_min;    // literature -- see NOTES_method_selection.md's HIP 3757 validation).
 } EncounterResult;
 
 // Integrates `star` and `iso` together, step by step, over `total_time` Myr (negative = backward,

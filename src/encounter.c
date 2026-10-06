@@ -11,6 +11,8 @@ EncounterResult find_closest_approach(
     result.time_at_min_myr = 0.0;
     result.star_pos_at_min = star->pos;
     result.iso_pos_at_min = iso->pos;
+    result.star_vel_at_min = star->vel;
+    result.iso_vel_at_min = iso->vel;
 
     for (int i = 0; i < n_steps; i++) {
         leapfrog_step(pot, star, dt);
@@ -23,6 +25,8 @@ EncounterResult find_closest_approach(
             result.time_at_min_myr = (i + 1) * dt;
             result.star_pos_at_min = star->pos;
             result.iso_pos_at_min = iso->pos;
+            result.star_vel_at_min = star->vel;
+            result.iso_vel_at_min = iso->vel;
         }
     }
 
