@@ -529,3 +529,37 @@ re-visiting the 5pc threshold (loosen it, since the known candidates' own true-e
 in Bailer-Jones' numbers would not have passed a 5pc screen under THIS project's model either, by
 the same logic); and the real priority remains resolving the underlying discrepancy before treating
 any of these numbers as trustworthy.
+
+## Second gaia_scan.c window bug: low relative-velocity candidates specifically
+
+Found while reviewing the first full 50pc-threshold scan's results (see "First real (partial) scan
+results" above): several LOW relative-velocity candidates -- exactly the most scientifically
+interesting kind, per Bailer-Jones et al. 2018's own preference -- came back with absurd
+"confirmed" distances (one case: 50 pc straight-line screen vs. a "confirmed" 5000 pc; others at
+1000+ pc). All affected cases shared low relative velocity (a few km/s).
+
+Root cause: the straight-line model's own implied timescale (t_star) grows large precisely when
+relative velocity is low -- and that's exactly the regime where gravity's cumulative effect over a
+long timescale can move the TRUE minimum far from the straight-line guess, no matter how many times
+the window-widening retry (from the earlier window-truncation fix) doubles it, since each doubling
+still starts from an unreliable base estimate. The widening retry's OWN cap (4 attempts) could run
+out before reaching the true minimum for these cases, silently returning a still-truncated result.
+
+Fixed two ways:
+1. Never start the gravity-confirmation window below this project's own settled 100 Myr backward-
+   integration trust limit (NOTES_method_selection.md's own "Backward-integration time window"
+   decision) -- removes the dependency on the straight-line guess for SIZING the window at all,
+   only still using it for the initial cheap filter. Affordable because this is a single
+   confirmation trajectory, not mc_search_stage1()'s 100 Monte Carlo clones.
+2. Added an explicit `WINDOW_LIMITED` flag to gaia_scan.c's output for any candidate where the
+   final result is STILL at the window's edge even after every retry attempt -- rather than
+   silently trusting a number that might still be wrong, scripts/summarize_candidates.py now
+   separates these out explicitly and excludes them from the "plausible candidates" ranking.
+
+Also found and fixed, while sizing real BOINC work units for `src/main_nostos_boinc.cpp`: a real
+timing measurement (10 stars x 100 Monte Carlo clones x 100,000 steps = 23.05s wall-clock on the
+bitboinc-app production server) implies ~2.3s/star, meaning the earlier, un-benchmarked default
+of 1000 stars/work-unit would take on the order of 38 MINUTES per work unit -- confirmed directly
+(a real run was killed after 12+ minutes of 100% CPU, still not done). `scripts/make_work_units.py`'s
+default chunk size lowered to 150 stars/WU (~5.75 min on this reference hardware) based on that
+real number, not a guess.

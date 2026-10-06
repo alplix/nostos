@@ -195,15 +195,36 @@ int main(int argc, char **argv) {
             // Both this and the straight-line screen above were pulled out into scan_logic.c/.h
             // after these two bugs were found by ad-hoc testing with zero automated coverage --
             // see tests/test_scan_logic.c, which now exercises both independently.
+            //
+            // Second real bug found, in the SAME family, while running the first full scan at a
+            // widened 50pc threshold: for LOW relative-velocity candidates specifically (exactly
+            // the most scientifically interesting ones, per Bailer-Jones et al. 2018's own
+            // preference), the straight-line t_star is a poor predictor of where to center the
+            // window at all -- low relative velocity means the straight-line model's own
+            // implied timescale is long, which is exactly the regime where gravity's cumulative
+            // effect over that long a time can move the true minimum far from a naive 2.5x*t_star
+            // guess, no matter how many times that guess gets doubled. Symptom: several
+            // "confirmed" distances came back wildly larger than the 50pc straight-line screen
+            // that was supposed to be getting refined (e.g. one case: d*=50pc straight-line vs a
+            // "confirmed" 5000pc). Fixed by never starting the window below this project's own
+            // settled 100 Myr backward-integration trust limit (NOTES_method_selection.md) --
+            // cheap to do since this is a single confirmation trajectory, not 100 Monte Carlo
+            // clones -- AND by explicitly checking the FINAL result for the same at-the-edge
+            // condition gravity_confirm() itself checks internally, flagging it in the output
+            // rather than silently trusting a result that still might be window-limited after
+            // every retry attempt.
             double initial_window_myr = fabs(t_star) * 2.5 + 2.0;
+            if (initial_window_myr < 100.0) initial_window_myr = 100.0;
             double window_myr;
-            EncounterResult r = gravity_confirm(&mw, star_ps, iso_ps, initial_window_myr, 2000, 4, &window_myr);
+            EncounterResult r = gravity_confirm(&mw, star_ps, iso_ps, initial_window_myr, 2000, 6, &window_myr);
             double rel_speed_kms = nostos_kpcmyr_to_kms(v3_norm(v3_sub(r.star_vel_at_min, r.iso_vel_at_min)));
+            double dt_final = window_myr / (int)(window_myr * 2000.0);
+            int still_at_edge = (fabs(fabs(r.time_at_min_myr) - window_myr) < 2.0 * dt_final);
 
             printf("%llu straight_line_d_pc=%.4f straight_line_t_myr=%.4f "
-                   "gravity_d_pc=%.4f gravity_t_myr=%.4f rel_speed_kms=%.2f search_window_myr=%.2f\n",
+                   "gravity_d_pc=%.4f gravity_t_myr=%.4f rel_speed_kms=%.2f search_window_myr=%.2f%s\n",
                    source_id, d_star_pc, t_star, r.min_distance_kpc * 1000.0, r.time_at_min_myr,
-                   rel_speed_kms, window_myr);
+                   rel_speed_kms, window_myr, still_at_edge ? " WINDOW_LIMITED" : "");
             fflush(stdout);
             n_candidates++;
         }
