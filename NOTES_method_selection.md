@@ -780,3 +780,8 @@ the two groups' solar-motion assumptions are close enough that switching between
 compared to the ~1.4-15x gap that's left. The remaining open candidates (potential model
 details beyond "doesn't matter much", or the precise surrogate-generation procedure for their
 Monte Carlo even though its median doesn't move) are unchanged from the previous section.
+
+Also checked integrator resolution as a possible contributor to the same residual gap: reran
+HIP 3757 at 10x and 100x the standard step density (1M and 10M steps/Myr vs the usual 100k).
+Result identical to 6 significant figures at every resolution (d=1.168878 pc in all three
+cases) -- the standard resolution is already fully converged, not a source of the gap either.
