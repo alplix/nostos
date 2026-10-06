@@ -120,13 +120,24 @@ int main(int argc, char **argv) {
             col.source_id, col.ra, col.dec, col.parallax, col.pmra, col.pmdec, col.rv);
 
     // 1I/'Oumuamua, same real JPL Horizons elements as tests/test_horizons_crosscheck.c and
-    // tests/test_pipeline_oumuamua_hip3757.c, evaluated at the same ~9-years-post-perihelion
-    // epoch that test uses (see its comment for why t=0/perihelion is the wrong choice).
+    // tests/test_pipeline_oumuamua_hip3757.c, evaluated ~9 years BEFORE perihelion -- the INBOUND
+    // asymptotic state, not the outbound one. This sign was the real bug behind the "open
+    // discrepancy" documented at length in NOTES_method_selection.md: this tool only integrates
+    // the MILKY WAY potential backward from here, never re-simulating the Sun's own gravity, so
+    // the starting velocity DIRECTION must already be the one the object had before the Sun
+    // deflected it (the inbound asymptote) -- not the one it has now, after the Sun's deflection
+    // (the outbound asymptote), which differs from the inbound direction by the orbit's full
+    // hyperbolic turning angle (2*asin(1/e) -- 112.7 degrees for this orbit, not a small
+    // correction). Using the outbound state and backward-integrating through perihelion with
+    // only the Galactic potential silently carried that wrong post-deflection direction all the
+    // way back through the Galaxy, which is what produced closest-approach distances tens of pc
+    // off from Bailer-Jones et al.'s reported values despite every individual component checking
+    // out in isolation. See NOTES_method_selection.md's "Found the actual bug" section.
     OrbitalElements oumuamua_el = {
         .e = 1.200954455284624, .q_au = 0.2559200355462156,
         .i_deg = 122.7402198359025, .node_deg = 24.59683473134646, .peri_deg = 241.8043518577817,
     };
-    double t_now_myr = 9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
+    double t_now_myr = -9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
     PhaseSpace iso_ps;
     orbital_elements_to_galactocentric(oumuamua_el, t_now_myr, &solar_params_default, &iso_ps);
 

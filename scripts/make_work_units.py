@@ -37,15 +37,18 @@ OUMUAMUA_ELEMENTS = {
 # method (linear propagation via a numerical Jacobian, verified stable under a 5x step-size
 # change) and its own comment for the honest caveat on evaluating at that solution's own epoch
 # rather than this file's OUMUAMUA_ELEMENTS' slightly different one (same underlying solution,
-# ~1-2e-4 relative difference in the elements themselves). Per-axis 1-sigma: ~0.00016, 0.00071,
-# 0.00069 km/s -- 'Oumuamua's orbit is exceptionally well-constrained (80 days of arcsecond-
-# level astrometry), so sub-m/s velocity uncertainty is the real, literature-consistent answer
-# here, not a bug -- replaces the earlier placeholder (1e-6 (kpc/Myr)^2 on the diagonal, about
-# 1 km/s per axis) that this TODO used to flag as unfinished.
+# ~1-2e-4 relative difference in the elements themselves). Evaluated at the INBOUND asymptote
+# (~9.08 years BEFORE perihelion, matching main_nostos_boinc.cpp's own starting point -- see
+# NOTES_method_selection.md's "Found the actual bug" section for why inbound, not outbound,
+# matters here). Per-axis 1-sigma: ~0.00108, 0.00017, 0.00129 km/s -- 'Oumuamua's orbit is
+# exceptionally well-constrained (80 days of arcsecond-level astrometry), so sub-m/s velocity
+# uncertainty is the real, literature-consistent answer here, not a bug -- replaces the earlier
+# placeholder (1e-6 (kpc/Myr)^2 on the diagonal, about 1 km/s per axis) that this TODO used to
+# flag as unfinished.
 OUMUAMUA_VEL_COV_KPCMYR2 = (
-    2.7356274850e-14, -1.2006509136e-13, 1.1720619917e-13,
-    5.2749871264e-13, -5.1515175807e-13,
-    5.0350089626e-13,
+    1.2096926752e-12, 1.8906766508e-13, 1.4415977481e-12,
+    3.0251163153e-14, 2.2965005835e-13,
+    1.7487728646e-12,
 )  # cov00 cov01 cov02 cov11 cov12 cov22
 
 DEFAULT_SEED_BASE = 1  # a fixed, reproducible default -- a real generator would pick this per

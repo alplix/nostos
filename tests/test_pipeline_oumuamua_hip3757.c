@@ -18,35 +18,34 @@
 // motion (sqrt(182.16^2+120.16^2)=218.2 mas/yr matching the paper's own
 // quoted 218.22 to 4 significant figures).
 //
-// Status: this is a genuinely OPEN validation, documented honestly rather
-// than adjusted to pass. BOTH stars show the exact same pattern -- found
-// encounter in the right temporal direction (past) and right
-// order-of-magnitude relative speed, but a MUCH shallower/earlier minimum
-// than reported (tens of pc instead of ~1 pc). Despite extensive
-// investigation (see NOTES_method_selection.md's full writeup), every
-// individual pipeline component has now been independently validated and
-// checks out:
-//   - 'Oumuamua's orbital_elements.c propagation: matches real JPL Horizons
-//     data to ~6e-4 relative error even 9 years post-perihelion (not just
-//     the ~1e-6 at +36 days test_horizons_crosscheck.c already checks).
-//   - HIP 3757's astrometry_to_galactocentric() output: matches astropy's
-//     independent ICRS->Galactic implementation to ~1e-7
-//     (test_coords_astropy_crosscheck.c).
-//   - Full gravity (Allen & Santillan potential) vs straight-line give
-//     essentially the SAME shallow minimum for both stars, even searched
-//     out to -6 Myr for HD 292249 (well past its reported -3.765 Myr) --
-//     gravity genuinely isn't the differentiator here.
-//   - 'Oumuamua's known non-gravitational (outgassing) acceleration
-//     (Micheli et al. 2018, confirmed present in the JPL Horizons solution
-//     used here) is quantitatively too small (~0.05 km/s velocity change
-//     from its few remaining active months after this test's reference
-//     epoch) to explain a 15-40x distance/time discrepancy.
-// The systematic nature (same qualitative mismatch for two very different
-// stars) with every individual component independently validated is itself
-// a real, useful finding -- it rules out a component-level bug and points
-// at something about the OVERALL comparison (Bailer-Jones' exact method,
-// reference epoch, or Monte-Carlo-median-vs-single-best-fit) not yet
-// understood. Left open rather than papered over.
+// Status, 2026-10-06: the long-open discrepancy this test used to document (tens of pc instead
+// of ~1 pc) is now LARGELY RESOLVED -- see NOTES_method_selection.md's "Found the actual bug"
+// section for the full writeup. Root cause: this file was evaluating 'Oumuamua's orbital
+// elements at t=+9.08 YEARS (the OUTBOUND, post-perihelion asymptote -- "now", matching how
+// it's actually observed), then backward-integrating that state through the Milky Way potential
+// ALONE, with no re-simulation of the Sun's own gravity anywhere in that integration. But a
+// Galactic-potential-only backward integration starting from the outbound state silently carries
+// the WRONG velocity direction once it passes back through where perihelion was: the inbound
+// (pre-encounter) and outbound (post-encounter) asymptotic velocity directions differ by the
+// orbit's full hyperbolic turning angle (2*asin(1/e) = 112.7 degrees for this orbit -- not a
+// small correction), because the Sun's gravity deflects the trajectory by exactly that angle
+// during the encounter, and this integrator never accounts for that deflection at all (by
+// design -- the Sun's gravity is supposed to be negligible by the time this integration takes
+// over). Fixed by evaluating at t=-9.08 years instead (the INBOUND asymptote) -- correct for
+// exactly the same reason the +9.08-year choice was correct for "what is 'Oumuamua's current
+// observed state": both are found empirically by checking where the (correspondingly signed)
+// time's computed velocity has converged to its asymptotic value, just on the two different
+// branches of the same hyperbola.
+//
+// Result with the fix: HIP 3757's time and speed now match Bailer-Jones' reported values to
+// within ~1% (t=-0.9855 vs -0.990 Myr, v=24.69 vs 24.7 km/s) -- distance is within ~2x (1.17 vs
+// 0.60 pc), down from ~40x. HD 292249 similarly improved across the board (see this file's
+// run_case() output). The remaining O(1)-2x gap in distance is a much smaller, more plausible
+// residual -- not yet further investigated, but no longer the dominant effect. Every individual
+// pipeline component was already independently validated before this fix (JPL Horizons,
+// astropy, galpy cross-checks -- still true and unaffected by this change, since the BUG was in
+// which asymptote this test fed into an otherwise-correct integration, not in any of those
+// validated components themselves).
 #include <stdio.h>
 #include <math.h>
 #include "../src/coords.h"
@@ -82,21 +81,24 @@ static void run_case(
 ) {
     printf("%s:\n", star_name);
 
-    // Evaluated ~9 years after perihelion (roughly "now"), NOT at t=0 (perihelion itself). Real
-    // bug found while building this test (see NOTES_method_selection.md): at t=0, 'Oumuamua's
-    // velocity is still mid-deflection by the Sun's gravity, not yet at its post-encounter
-    // asymptotic value -- using it directly pointed the relative-velocity vector in a materially
-    // wrong direction, enough to flip whether the closest approach falls in the future or past.
-    double t_now_myr = 9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
+    // Evaluated ~9 years BEFORE perihelion -- the INBOUND asymptote, the velocity direction
+    // 'Oumuamua actually had while approaching the solar system through the Galaxy, which is
+    // what this Milky-Way-potential-only backward integration needs as its starting point (see
+    // this file's top comment for why the OUTBOUND, post-encounter asymptote -- used here before
+    // this fix -- silently fed in the wrong direction instead).
+    double t_inbound_myr = -9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
     PhaseSpace iso_ps;
-    bool ok = orbital_elements_to_galactocentric(oumuamua_elements(), t_now_myr, &solar_params_default, &iso_ps);
+    bool ok = orbital_elements_to_galactocentric(oumuamua_elements(), t_inbound_myr, &solar_params_default, &iso_ps);
     check(ok, "'Oumuamua's orbital elements convert to a valid Galactocentric state");
 
     PhaseSpace star_ps;
     astrometry_to_galactocentric(star_astrometry, &solar_params_default, &star_ps);
 
+    // NOT "today's" separation -- iso_ps is 'Oumuamua's position ~9 years before perihelion, on
+    // the inbound leg, not where it is now. Printed only as a sanity-check starting distance for
+    // the backward search below.
     double d0_pc = v3_norm(v3_sub(star_ps.pos, iso_ps.pos)) * 1000.0;
-    printf("  present-day separation: %.2f pc\n", d0_pc);
+    printf("  separation at the inbound starting point: %.2f pc\n", d0_pc);
 
     Potential mw = milkyway_potential(&milkyway_potential_default);
     State star_state = {star_ps.pos, star_ps.vel};
@@ -108,21 +110,25 @@ static void run_case(
     Vec3 rel_vel = v3_sub(r.star_vel_at_min, r.iso_vel_at_min);
     double rel_speed_kms = nostos_kpcmyr_to_kms(v3_norm(rel_vel));
 
-    printf("  found: t=%.3f Myr, distance=%.3f pc, rel. speed=%.1f km/s\n",
+    printf("  found: t=%.4f Myr, distance=%.4f pc, rel. speed=%.2f km/s\n",
            r.time_at_min_myr, min_d_pc, rel_speed_kms);
     printf("  Bailer-Jones et al. 2018: t=%.3f Myr, distance=%.2f pc, rel. speed=%.1f km/s\n",
            bj_time_myr, bj_distance_pc, bj_speed_kms);
 
-    // Only the sign is asserted as pass/fail -- this directly guards against a regression of the
-    // real bug this test found and fixed (evaluating 'Oumuamua at the wrong epoch flipped this).
-    // Distance, time, and speed magnitude are all part of the same open, documented discrepancy
-    // (see this file's top comment) -- printed for visibility, not asserted, since HD 292249's
-    // found speed (51.7 km/s vs their reported 10.7 km/s) is itself part of that same open
-    // mismatch, not a separate thing to tolerance-tune around.
+    // Time and speed are now asserted to within a generous 25% relative tolerance -- both match
+    // to within a few percent in practice (see this file's top comment), so 25% has real margin
+    // without being so loose it would pass a regression of the original bug (which was off by
+    // 1-2 ORDERS of magnitude, not tens of percent). Distance remains printed, not asserted: the
+    // residual ~2x gap is a smaller, different, not-yet-investigated effect (not the same bug
+    // this test's history is about).
     check(r.time_at_min_myr < 0, "closest approach found in the past (not the future)");
+    check(fabs(r.time_at_min_myr - bj_time_myr) / fabs(bj_time_myr) < 0.25,
+          "closest-approach time matches Bailer-Jones et al. 2018 to within 25%");
+    check(fabs(rel_speed_kms - bj_speed_kms) / bj_speed_kms < 0.25,
+          "relative speed matches Bailer-Jones et al. 2018 to within 25%");
 
-    printf("  NOTE: distance/time/speed do not match Bailer-Jones' reported values -- a known, "
-           "unresolved discrepancy (not a pass/fail check here, beyond the sign). See this file's "
+    printf("  NOTE: distance still doesn't closely match Bailer-Jones' reported value -- a "
+           "smaller, separate residual gap (not the fixed inbound/outbound bug). See this file's "
            "and NOTES_method_selection.md's top comments.\n\n");
 }
 
@@ -154,8 +160,8 @@ int main(void) {
         printf("%d check(s) FAILED\n", g_failures);
         return 1;
     }
-    printf("Partial validation passed for both stars (encounter found in the past, as it should\n"
-           "be) -- the precise encounter distance/time/speed remain an open, documented\n"
-           "discrepancy.\n");
+    printf("Validation passed for both stars (encounter found in the past, with time and speed\n"
+           "matching Bailer-Jones et al. 2018 to within 25%%) -- distance still has a smaller,\n"
+           "unresolved residual gap, printed above but not asserted.\n");
     return 0;
 }

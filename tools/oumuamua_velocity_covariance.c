@@ -21,10 +21,18 @@
 // uncertainty is propagated as a perturbation of the t_myr argument, not a struct field.
 //
 // Evaluation point: this project's own pipeline (tests/test_pipeline_oumuamua_hip3757.c)
-// evaluates at t_myr corresponding to ~9.08 years post-perihelion, the point found to reach the
-// asymptotic hyperbolic-excess-velocity regime (velocity has stopped changing fast -- see that
-// test's own comment). The same t_myr is used here, since the velocity covariance is only
-// meaningful once the velocity itself has stopped evolving quickly with time.
+// evaluates at t_myr corresponding to ~9.08 years BEFORE perihelion -- the INBOUND asymptote,
+// the velocity direction 'Oumuamua actually had while approaching through the Galaxy, which is
+// what the long Milky-Way-potential-only backward integration needs (see that test file's top
+// comment for the real bug this matters for: the outbound, post-perihelion asymptote points in
+// a materially different direction, by the orbit's full hyperbolic turning angle, and silently
+// carrying that wrong direction through a backward integration that never re-simulates the
+// Sun's actual deflection was the dominant source of this project's long-open encounter-distance
+// discrepancy). The magnitude (9.08 years) is where the velocity reaches the asymptotic
+// hyperbolic-excess regime (stops changing fast) -- same convergence rate on the inbound branch
+// as the outbound one, by the two-body Kepler problem's time symmetry. The same t_myr is used
+// here, since the velocity covariance is only meaningful once the velocity itself has stopped
+// evolving quickly with time.
 //
 // Caveat, stated plainly rather than glossed over: the SBDB solution returned by default is
 // quoted at epoch JD 2458080.5, while this project's hardcoded OUMUAMUA_ELEMENTS (used
@@ -51,9 +59,9 @@
 #define NODE_DEG_BEST 24.59690955523242
 #define PERI_DEG_BEST 241.8105360304898
 
-// Evaluation time: ~9.08 years post-perihelion, this project's own settled asymptotic-regime
-// point (tests/test_pipeline_oumuamua_hip3757.c).
-#define T_MYR_EVAL (9.08 * 365.25 * NOSTOS_MYR_PER_DAY)
+// Evaluation time: ~9.08 years BEFORE perihelion -- the inbound asymptote, this project's own
+// settled correct starting point (tests/test_pipeline_oumuamua_hip3757.c).
+#define T_MYR_EVAL (-9.08 * 365.25 * NOSTOS_MYR_PER_DAY)
 
 // 6x6 covariance submatrix (e, q[au], tp[day], node[deg], peri[deg], i[deg]) -- exactly the
 // top-left 6x6 block of the SBDB response's 9x9 "covariance.data", in its own native element

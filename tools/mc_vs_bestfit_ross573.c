@@ -27,7 +27,7 @@
 // a full ISO state independently, run the SAME find_closest_approach() this project's pipeline
 // tests use, and record the resulting minimum distance/time/speed. Report the median and a 90%
 // interval across the 2000 draws, for direct comparison against both the deterministic best-fit
-// (tests/test_pipeline_borisov_ross573.c: d=13.77 pc, t=-0.523 Myr, v=29.8 km/s) and
+// (tests/test_pipeline_borisov_ross573.c: d=1.06 pc, t=-0.893 Myr, v=23.0 km/s) and
 // Bailer-Jones et al. 2020's reported MC median (d=0.068 pc, t=-909 kyr, v=22.6 km/s).
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,8 +130,11 @@ int main(void) {
     mc_rng_seed(&iso_rng, 2002);
 
     Potential mw = milkyway_potential(&milkyway_potential_default);
-    double t_now_myr = 3.0 * 365.25 * NOSTOS_MYR_PER_DAY; // same evaluation point as
-                                                            // tests/test_pipeline_borisov_ross573.c
+    double t_now_myr = -3.0 * 365.25 * NOSTOS_MYR_PER_DAY; // the INBOUND asymptote, same
+                                                             // evaluation point as
+                                                             // tests/test_pipeline_borisov_ross573.c
+                                                             // (see its top comment for why
+                                                             // inbound, not outbound, matters)
 
     double *dist = malloc(N_DRAWS * sizeof(double));
     double *time = malloc(N_DRAWS * sizeof(double));
@@ -186,7 +189,7 @@ int main(void) {
            percentile(speed, n_valid, 0.5), percentile(speed, n_valid, 0.05), percentile(speed, n_valid, 0.95));
 
     printf("\nfor comparison:\n");
-    printf("  this project's deterministic best fit: d=13.77 pc, t=-0.523 Myr, v=29.8 km/s\n");
+    printf("  this project's deterministic best fit: d=1.06 pc, t=-0.893 Myr, v=23.0 km/s\n");
     printf("  Bailer-Jones et al. 2020 (MC median):  d=0.068 pc, t=-0.909 Myr, v=22.6 km/s\n");
 
     free(dist); free(time); free(speed);

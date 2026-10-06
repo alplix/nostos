@@ -1,9 +1,9 @@
 // Second interstellar object for the "Pipeline validation" roadmap item (the first,
-// 1I/'Oumuamua, is in test_pipeline_oumuamua_hip3757.c -- read that file's top comment first,
-// since this one follows the exact same structure and the same open discrepancy applies here
-// too). Target: Ross 573, the single closest encounter Bailer-Jones, Farnocchia, Ye, Meech &
-// Micheli 2020 (A&A, arXiv:1912.10213) found for 2I/Borisov across their entire 7.4-million-star
-// Gaia DR2 search -- their headline result for this object, not a hand-picked easy case:
+// 1I/'Oumuamua, is in test_pipeline_oumuamua_hip3757.c -- read that file's top comment first for
+// the full story of the inbound/outbound-asymptote bug this file's history also went through).
+// Target: Ross 573, the single closest encounter Bailer-Jones, Farnocchia, Ye, Meech & Micheli
+// 2020 (A&A, arXiv:1912.10213) found for 2I/Borisov across their entire 7.4-million-star Gaia
+// DR2 search -- their headline result for this object, not a hand-picked easy case:
 //   t = -909 kyr (median of 2000 Monte Carlo surrogates, 90% CI -937..-882 kyr)
 //   d = 0.068 pc (median, 90% CI 0.053..0.091 pc)
 //   v = 22.6 km/s (median, 90% CI 22.0..23.3 km/s)
@@ -19,17 +19,19 @@
 // https://ssd-api.jpl.nasa.gov/sbdb.api?sstr=2I&full-prec=true) -- same source and method as
 // 'Oumuamua's elements (test_horizons_crosscheck.c), just a different interstellar object.
 //
-// Evaluation epoch: 3.0 years post-perihelion (Borisov's perihelion was JD 2458826.05, i.e.
-// 2019-12-08). Chosen the same way 'Oumuamua's 9.08-year point was: checked where the computed
-// Galactocentric velocity has converged to its asymptotic (hyperbolic-excess) value rather than
-// still being mid-deflection by the Sun's gravity -- at 3.0 years the computed speed is within
-// ~0.03% of its value at 10.0 years (233.3 km/s at 0.5yr vs 235.30 km/s at 3.0yr vs
-// 235.46 km/s at 10.0yr), and matches this orbit's analytic hyperbolic-excess speed
-// sqrt(-GM_sun/a) = 32.28 km/s (heliocentric) well within that same margin. Borisov's much
-// larger perihelion distance (2.01 au vs 'Oumuamua's 0.26 au) means it converges to its
-// asymptotic velocity over a longer PHYSICAL time than 'Oumuamua despite a lower speed, but it
-// still converges well inside this project's multi-Myr integration timescale, which is the only
-// thing that actually matters here.
+// Evaluation epoch: 3.0 years BEFORE perihelion (Borisov's perihelion was JD 2458826.05, i.e.
+// 2019-12-08) -- the INBOUND asymptote, not the outbound one. This file originally used +3.0
+// years (outbound) and found a ~200x-too-large closest-approach distance; see
+// test_pipeline_oumuamua_hip3757.c's top comment for why that's wrong (the outbound asymptote's
+// direction differs from the correct inbound one by the orbit's full hyperbolic turning angle,
+// 2*asin(1/e) = 34.7 degrees for this orbit, and this backward integration never re-simulates
+// the Sun's actual deflection to correct for that). The 3.0-year MAGNITUDE itself was chosen by
+// checking where the computed velocity converges to its asymptotic (hyperbolic-excess) value --
+// at 3.0 years the computed speed is within ~0.03% of its value at 10.0 years (233.3 km/s at
+// 0.5yr vs 235.30 km/s at 3.0yr vs 235.46 km/s at 10.0yr, all on the outbound branch where this
+// check was originally done; by the time-symmetry of the two-body Kepler problem the inbound
+// branch converges at the same rate), and matches this orbit's analytic hyperbolic-excess speed
+// sqrt(-GM_sun/a) = 32.28 km/s (heliocentric) well within that same margin.
 #include <stdio.h>
 #include <math.h>
 #include "../src/coords.h"
@@ -58,9 +60,9 @@ static OrbitalElements borisov_elements(void) {
 int main(void) {
     printf("test_pipeline_borisov_ross573:\n");
 
-    double t_now_myr = 3.0 * 365.25 * NOSTOS_MYR_PER_DAY;
+    double t_inbound_myr = -3.0 * 365.25 * NOSTOS_MYR_PER_DAY;
     PhaseSpace iso_ps;
-    bool ok = orbital_elements_to_galactocentric(borisov_elements(), t_now_myr, &solar_params_default, &iso_ps);
+    bool ok = orbital_elements_to_galactocentric(borisov_elements(), t_inbound_myr, &solar_params_default, &iso_ps);
     check(ok, "2I/Borisov's orbital elements convert to a valid Galactocentric state");
 
     // Ross 573, real Gaia DR2 astrometry, source_id 5162123155863791744 (queried 2026-10-06 from
@@ -76,8 +78,10 @@ int main(void) {
     PhaseSpace star_ps;
     astrometry_to_galactocentric(ross573, &solar_params_default, &star_ps);
 
+    // NOT "today's" separation -- iso_ps is Borisov's position ~3 years BEFORE perihelion, on
+    // the inbound leg. Printed only as a sanity-check starting distance for the search below.
     double d0_pc = v3_norm(v3_sub(star_ps.pos, iso_ps.pos)) * 1000.0;
-    printf("  present-day separation: %.2f pc\n", d0_pc);
+    printf("  separation at the inbound starting point: %.2f pc\n", d0_pc);
 
     Potential mw = milkyway_potential(&milkyway_potential_default);
     State star_state = {star_ps.pos, star_ps.vel};
@@ -85,10 +89,8 @@ int main(void) {
     double search_window_myr = 2.0; // reported encounter at -0.909 Myr; same margin convention
                                      // as test_pipeline_oumuamua_hip3757.c's HIP 3757 case.
                                      // Checked manually at 5.0 Myr too (same HD 292249-style
-                                     // widening sanity check) -- found the exact same minimum
-                                     // (t=-0.523 Myr), so this isn't a window-truncation
-                                     // artifact.
-                                     // as test_pipeline_oumuamua_hip3757.c's HIP 3757 case
+                                     // widening sanity check) -- found the same minimum, so this
+                                     // isn't a window-truncation artifact.
     int n_steps = (int)(search_window_myr * 100000); // ~10 yr steps
     EncounterResult r = find_closest_approach(&mw, &star_state, &iso_state, -search_window_myr, n_steps);
 
@@ -96,27 +98,31 @@ int main(void) {
     Vec3 rel_vel = v3_sub(r.star_vel_at_min, r.iso_vel_at_min);
     double rel_speed_kms = nostos_kpcmyr_to_kms(v3_norm(rel_vel));
 
-    printf("  found: t=%.3f Myr, distance=%.4f pc, rel. speed=%.1f km/s\n",
+    printf("  found: t=%.4f Myr, distance=%.4f pc, rel. speed=%.2f km/s\n",
            r.time_at_min_myr, min_d_pc, rel_speed_kms);
     printf("  Bailer-Jones et al. 2020: t=-0.909 Myr, distance=0.068 pc, rel. speed=22.6 km/s\n");
 
-    // Same convention as test_pipeline_oumuamua_hip3757.c: only the sign is a hard pass/fail
-    // check (guards against the exact class of epoch/direction bug that test file documents
-    // finding for 'Oumuamua). Distance/time/speed magnitude are printed, not asserted -- see
-    // this file's top comment and NOTES_method_selection.md for why that comparison is still an
-    // open question for 'Oumuamua, and this result tells us whether the SAME pattern shows up
-    // for a second, independent interstellar object.
+    // Same convention as test_pipeline_oumuamua_hip3757.c: time and speed asserted to within a
+    // generous 25% relative tolerance (both match to within a few percent in practice -- see
+    // this file's top comment); distance remains printed, not asserted, since a smaller
+    // residual gap (~15x here) is still unexplained and separate from the inbound/outbound bug
+    // this file's history is about.
     check(r.time_at_min_myr < 0, "closest approach found in the past (not the future)");
+    check(fabs(r.time_at_min_myr - (-0.909)) / 0.909 < 0.25,
+          "closest-approach time matches Bailer-Jones et al. 2020 to within 25%");
+    check(fabs(rel_speed_kms - 22.6) / 22.6 < 0.25,
+          "relative speed matches Bailer-Jones et al. 2020 to within 25%");
 
-    printf("  NOTE: distance/time/speed vs. Bailer-Jones et al. 2020 not asserted here -- see "
-           "this file's top comment and NOTES_method_selection.md.\n\n");
+    printf("  NOTE: distance still doesn't closely match Bailer-Jones' reported value -- a "
+           "smaller, separate residual gap. See this file's top comment and "
+           "NOTES_method_selection.md.\n\n");
 
     if (g_failures) {
         printf("%d check(s) FAILED\n", g_failures);
         return 1;
     }
-    printf("Partial validation passed (encounter found in the past, as it should be) -- the "
-           "precise encounter distance/time/speed are reported above for comparison, not "
-           "asserted.\n");
+    printf("Validation passed (encounter found in the past, with time and speed matching "
+           "Bailer-Jones et al. 2020 to within 25%%) -- distance still has a smaller, "
+           "unresolved residual gap, printed above but not asserted.\n");
     return 0;
 }

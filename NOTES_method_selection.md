@@ -676,3 +676,88 @@ fully specified in the abstract-level summary read so far), or a genuine differe
 solar motion/LSR convention is used for `solar_params_default`. None of these have been
 checked against Bailer-Jones et al.'s actual paper text in detail yet -- that remains the next
 real step, not a MC-sampling artifact.
+
+## Found the actual bug: inbound vs outbound asymptote, 2026-10-07
+
+Root cause of the "open discrepancy" documented at length above (both the 'Oumuamua and
+Borisov pipeline-validation sections, and the now-ruled-out Monte-Carlo-vs-best-fit test).
+Found by reading Bailer-Jones, Farnocchia, Ye, Meech & Micheli 2020's actual methodology text
+(arXiv:1912.10213) rather than just its headline numbers: they state they compute 2I/Borisov's
+pre-encounter trajectory by "integrat[ing] back to 3000 BCE and then extrapolat[ing] to the
+Keplerian inbound asymptote" -- explicitly the INBOUND asymptote, not the outbound one this
+project's pipeline had been using everywhere (`tests/test_pipeline_oumuamua_hip3757.c`,
+`tests/test_pipeline_borisov_ross573.c`, `src/gaia_scan.c`, `src/main_nostos_boinc.cpp`, and
+both the velocity-covariance tools above all evaluated `orbital_elements_to_galactocentric()` at
+a POSITIVE t_myr -- time AFTER perihelion).
+
+Why this matters, and why none of the extensive component-level validation caught it: this
+project's long-timescale backward integration (`find_closest_approach()`, Myr-scale, Milky Way
+potential only) deliberately never re-simulates the Sun's own gravity -- by design, since the
+Sun's influence is supposed to be negligible by the time that integration takes over (see
+`orbital_elements.h`'s own domain-of-validity note). But the Sun's gravity is NOT negligible
+near perihelion itself -- it's what makes the orbit hyperbolic in the first place, and it
+deflects the trajectory's velocity DIRECTION by the orbit's full hyperbolic turning angle,
+2*asin(1/e), between the inbound (pre-encounter) and outbound (post-encounter) asymptotes. For
+'Oumuamua (e=1.201) that's 112.7 degrees; for Borisov (e=3.356) it's 34.7 degrees -- neither is
+a small correction. Starting the Galactic-potential-only backward integration from the OUTBOUND
+state (the one actually observed, since both objects are only discovered post-perihelion) and
+integrating backward through where perihelion was silently carries the post-deflection velocity
+DIRECTION all the way back through the Galaxy, rather than correctly switching to the
+pre-deflection (inbound) direction the object actually had on its long approach. The orbit's
+SPEED is conserved between the two asymptotes (both equal v_infinity, by energy conservation),
+which is exactly why every test kept finding "right order-of-magnitude speed, very wrong
+distance" -- a smoking-gun pattern that, in hindsight, points straight at a direction error
+rather than anything in the magnitude/scale of the problem.
+
+This evaded every earlier cross-check because each one validated the TRANSFORM CHAIN itself
+(JPL Horizons, astropy, galpy), never which TIME ARGUMENT the pipeline fed into that chain --
+a methodological/usage bug, not a bug in any validated component.
+
+Fix: evaluate `orbital_elements_to_galactocentric()` at the same magnitude but NEGATIVE t_myr
+(~9.08 years before perihelion for 'Oumuamua, ~3.0 years before for Borisov -- unchanged from
+before, since by the two-body Kepler problem's time-reversal symmetry the inbound branch
+converges to its own asymptotic speed at the same rate the outbound branch does). Applied to
+every call site: `src/gaia_scan.c`, `src/main_nostos_boinc.cpp`,
+`tests/test_pipeline_oumuamua_hip3757.c`, `tests/test_pipeline_borisov_ross573.c`,
+`tools/oumuamua_velocity_covariance.c`, `tools/mc_vs_bestfit_ross573.c`.
+
+Result -- dramatic improvement across all three reference stars:
+
+| star      | metric   | before (outbound) | after (inbound) | Bailer-Jones |
+|-----------|----------|--------------------|-------------------|--------------|
+| HIP 3757  | t (Myr)  | -0.067             | -0.9855           | -0.990       |
+|           | d (pc)   | 24.73              | 1.17              | 0.60         |
+|           | v (km/s) | 39.15              | 24.69             | 24.7         |
+| HD 292249 | t (Myr)  | -0.592             | -3.949            | -3.765       |
+|           | d (pc)   | 27.14              | 2.31              | 1.60         |
+|           | v (km/s) | 51.74              | 10.24             | 10.7         |
+| Ross 573  | t (Myr)  | -0.523             | -0.893            | -0.909       |
+|           | d (pc)   | 13.77              | 1.06              | 0.068        |
+|           | v (km/s) | 29.77              | 23.01             | 22.6         |
+
+Time and speed now match Bailer-Jones et al. to within a few percent for all three stars (the
+pipeline tests now assert this, to a generous 25% tolerance). Distance is still off by a
+residual ~1.4-2x for the two 'Oumuamua stars and ~15x for Ross 573 -- down from 15-200x, but not
+fully closed. Re-ran the already-built `tools/mc_vs_bestfit_ross573.c` two-sided Monte Carlo
+diagnostic at the corrected inbound point too: median 1.06 pc (90% CI 1.01-1.11 pc), essentially
+identical to the new deterministic best fit -- confirming the MC-vs-best-fit hypothesis is
+STILL ruled out even with the direction bug fixed; it was never about that.
+
+Remaining open question (smaller now, genuinely different from before): why is there still a
+~1.4-15x gap in distance specifically, with time and speed now both solid? Not yet
+investigated. Candidate hypotheses for a future session: Bailer-Jones et al.'s potential model
+details beyond "smooth axisymmetric, doesn't matter much" (they don't fully specify parameters
+in the text read so far); their reported numbers are 2000-surrogate MEDIANS is confirmed NOT the
+explanation, but the SPECIFIC surrogate-generation procedure (they resample a "6D covariance
+matrix, 3D position + 3D velocity" built some other way, not necessarily the orbital-element
+covariance used here) could still differ in a way that matters for the heavier tails of a
+highly sensitive quantity like miss distance even if the median doesn't move much; or a smaller
+remaining frame/epoch effect not yet isolated.
+
+IMPORTANT CONSEQUENCE: every Gaia-catalog scan result produced before this fix --
+`scan_oumuamua_candidates_50pc.txt` (83,363 candidates from a partial, ~28.5M-row scan) and the
+14M-row window-fix validation run -- used the WRONG (outbound) 'Oumuamua state and must be
+treated as STALE. The window-sizing fix itself (bugs #1-#3 above) is unaffected and still
+validated correctly by that 14M-row run (no WINDOW_LIMITED stragglers in its output) -- only the
+ISO's absolute trajectory was wrong, not the window-search mechanics. A full fresh rescan with
+the corrected `gaia_scan.c` is needed before trusting any candidate list from this project.

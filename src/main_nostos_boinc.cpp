@@ -79,15 +79,19 @@ int main(int argc, char **argv) {
     }
 
     PhaseSpace iso_ps;
-    // Evaluated ~9 years after perihelion, NOT at t=0 -- see
-    // tests/test_pipeline_oumuamua_hip3757.c's comment and NOTES_method_selection.md for the real
-    // bug this choice fixes (t=0/perihelion gives a velocity still mid-deflection by the Sun's
-    // gravity, pointing the wrong direction for the long backward integration). The generator
-    // that writes this work unit's input file is responsible for having already advanced `el` to
-    // represent the ISO's elements at whatever epoch is ~years-not-decades past its own
-    // perihelion -- this wrapper just evaluates slightly further forward from THAT epoch to reach
-    // the asymptotic regime, same fixed offset every time for consistency.
-    double t_eval_myr = 9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
+    // Evaluated ~9 years BEFORE perihelion (the INBOUND asymptotic state), not after it and not
+    // at t=0 -- see NOTES_method_selection.md's "Found the actual bug" section. t=0/perihelion
+    // gives a velocity still mid-deflection by the Sun's gravity; the OUTBOUND (post-perihelion)
+    // asymptote, used here until this fix, points in the WRONG direction for this long Milky-Way-
+    // only backward integration -- it differs from the correct inbound direction by the orbit's
+    // full hyperbolic turning angle (112.7 degrees for 'Oumuamua's own orbit, not a small
+    // correction), since this integrator never re-simulates the Sun's actual deflection near
+    // perihelion at all. Using the inbound asymptote's direction from the start sidesteps that
+    // entirely. The generator that writes this work unit's input file is responsible for having
+    // given `el` consistent with that same convention; this wrapper evaluates a further FIXED
+    // negative offset from perihelion to make sure the asymptotic regime (not the still-curving
+    // near-Sun part of the orbit) is reached, same offset every time for consistency.
+    double t_eval_myr = -9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
     if (!orbital_elements_to_galactocentric(el, t_eval_myr, &solar_params_default, &iso_ps)) {
         fprintf(stderr, "invalid orbital elements (not hyperbolic, or q<=0)\n");
         free(stars);
