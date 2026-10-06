@@ -451,3 +451,42 @@ stars' best-fit (non-MC) trajectories specifically, to check whether even
 THEIR best-fit single trajectory agrees with their own reported MC median
 -- if not, that would point straight at the Monte-Carlo-median explanation
 rather than anything in this project's own pipeline.
+
+## First real-data scan tool (src/gaia_scan.c) -- real bug found, first preview candidates
+
+Built `src/gaia_scan.c`, a standalone CLI tool (not the BOINC app) that
+streams the downloaded Gaia bulk CSV directly and screens every star
+against 'Oumuamua: a cheap analytic straight-line filter (O(1) per star, no
+integration loop) first, then a full-gravity `find_closest_approach()`
+confirmation for anything under 5 pc. Makes scanning tens of millions of
+rows in a single local pass practical (a dry run on 500k rows took ~4
+seconds).
+
+**Real bug found and fixed**: the straight-line screen can find a closest
+approach in either the past (t_star<0) OR the future (t_star>0) depending
+on the star's specific relative motion -- obvious in hindsight, but the
+first version of the gravity-confirmation step always searched BACKWARD
+regardless of which sign the straight-line estimate came back with. For a
+star whose real closest approach was in the FUTURE, this "confirmed" it by
+searching an unrelated backward trajectory instead, producing a wildly
+wrong, meaningless distance (one test case: straight-line said 1.69 pc at
+t=+4.5 Myr; the buggy backward "confirmation" said 230 pc). Fixed by only
+treating t_star<0 candidates as real candidates at all -- which is also
+the scientifically correct filter anyway, since a future closest approach
+says nothing about where the ISO came FROM, the actual question this
+project asks.
+
+**First preview results** (scan still running against the download, which
+is itself still in progress -- see "Data" in README.md's roadmap): several
+sub-5pc candidates found already, including one with an implausibly high
+~343 km/s relative speed. Treating that one with real skepticism rather
+than excitement -- a relative velocity that high is far outside normal
+disk-star kinematics and is much more likely a Gaia radial-velocity
+measurement artifact for that specific source than a genuine close
+encounter, consistent with how Bailer-Jones et al. 2018 themselves treat
+relative velocity as a plausibility signal (their own most-favored
+candidate, HD 292249, is their LOWEST relative-velocity one, not their
+closest-approach one). Full results and any real candidate list are
+pending both the download finishing and a proper review pass (e.g.
+cross-matching candidates against SIMBAD, sanity-checking relative
+velocities) -- nothing here is being reported as a discovery yet.
