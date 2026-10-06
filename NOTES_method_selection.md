@@ -761,3 +761,22 @@ treated as STALE. The window-sizing fix itself (bugs #1-#3 above) is unaffected 
 validated correctly by that 14M-row run (no WINDOW_LIMITED stragglers in its output) -- only the
 ISO's absolute trajectory was wrong, not the window-search mechanics. A full fresh rescan with
 the corrected `gaia_scan.c` is needed before trusting any candidate list from this project.
+
+## Checked solar-motion-parameter differences too -- also not the residual gap, 2026-10-07
+
+Quick follow-up check on the smaller ~1.4-15x residual distance gap left after the
+inbound/outbound fix above: fetched Bailer-Jones' own solar position/velocity parameters
+(Bailer-Jones 2015/2014, arXiv:1412.3648, cited by both the 'Oumuamua 2018 and Borisov 2020
+papers for "the same Galactic model"): R0=8.0 kpc, Z0=+10 pc, and a Sun azimuthal velocity of
+242 km/s taken directly from Reid & Brunthaler 2004's Sgr A* proper-motion measurement (already
+the Sun's full velocity, not a separate circular+peculiar split) -- versus this project's
+solar_params_default: R0=8.122 kpc, Z0=20.8 pc, v_circ+v_pec=241.24 km/s. U and W peculiar
+motion are IDENTICAL in both (11.1, 7.25 km/s, same Schonrich et al. 2010 citation).
+
+Re-ran all three reference stars with Bailer-Jones' own values substituted in for
+solar_params_default: the results change by less than 0.5% in every quantity (e.g. HIP 3757's
+distance: 1.1689 -> 1.1683 pc). Rules this out too as an explanation for the residual gap --
+the two groups' solar-motion assumptions are close enough that switching between them is noise
+compared to the ~1.4-15x gap that's left. The remaining open candidates (potential model
+details beyond "doesn't matter much", or the precise surrogate-generation procedure for their
+Monte Carlo even though its median doesn't move) are unchanged from the previous section.
