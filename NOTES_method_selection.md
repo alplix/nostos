@@ -785,3 +785,17 @@ Also checked integrator resolution as a possible contributor to the same residua
 HIP 3757 at 10x and 100x the standard step density (1M and 10M steps/Myr vs the usual 100k).
 Result identical to 6 significant figures at every resolution (d=1.168878 pc in all three
 cases) -- the standard resolution is already fully converged, not a source of the gap either.
+
+One more candidate checked and ruled out: Bailer-Jones et al. 2020 themselves quote a "neglect
+of two-body effects" uncertainty for Ross 573 specifically -- Ross 573's OWN gravity deflecting
+Borisov during the encounter (not Sun-related; this project's encounter.c also deliberately
+ignores star-ISO mutual gravity, per its own top comment). They compute this effect at just
+0.002 pc for Ross 573 -- far too small to explain the current ~1 pc residual gap, and they note
+it's negligible for every other encounter they report too. Not the explanation either.
+
+Stopping the residual-gap investigation here for now: potential-model choice, Monte-Carlo-vs-
+best-fit, solar-motion parameters, integrator resolution, and star-ISO mutual gravity are all
+now ruled out as the dominant cause. The inbound/outbound fix above resolved the large (15-200x)
+part of the original discrepancy; what's left (~1.4-15x) is a smaller, genuinely open question,
+plausibly within the kind of real astrophysical/methodological uncertainty both research groups
+already operate under, rather than a further bug in this codebase.
