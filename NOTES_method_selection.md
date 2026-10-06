@@ -185,6 +185,28 @@ weak magnitude-preservation check after the full rotation chain. (b) is a
 real check of the time-domain (Kepler-equation/vis-viva) math; energy and
 angular-momentum magnitude are rotation-invariant though, so none of this
 actually validates the perifocal->ecliptic->equatorial rotation matrices'
-correctness, only that they're at least orthogonal. **Real TODO**, same as
-coords.c: cross-check against a real JPL Horizons state vector for
-'Oumuamua or Borisov at a known epoch before trusting the rotation chain.
+correctness, only that they're at least orthogonal.
+
+**Done, 2026-10-06**: the real cross-check this section used to flag as a TODO.
+`tests/test_horizons_crosscheck.c` fetches a live JPL Horizons state vector for
+1I/'Oumuamua (real published osculating elements + ICRF position/velocity at
+the same epoch, queried directly from ssd.jpl.nasa.gov's API) and checks
+`orbital_elements_to_galactocentric()`'s output against it end to end --
+Kepler solve, the full perifocal->ecliptic->equatorial rotation chain, AND
+coords.c's ICRS->Galactic matrix all at once (by rotating back with that
+matrix's transpose). Both position and velocity match to ~1e-6 relative
+error. This is the first validation in the project that isn't just internal
+self-consistency; it specifically catches what (b) and (c) above couldn't --
+a wrong but orthogonal rotation.
+
+One real bug found while building this test (in the test itself, not the
+library code): the AU<->kpc and day<->Myr unit conversions for velocity were
+initially inverted (divided by the conversion constants instead of
+multiplying), which silently produced a wrong-but-direction-consistent
+velocity off by a constant ~3.14x factor on all three components -- an easy
+trap, since a uniform-ratio error across all components looks at first
+glance like it could be a legitimate physical factor (it momentarily looked
+suspiciously close to pi) rather than a unit-conversion sign flip. Caught by
+comparing against the real reference value, not by any internal check --
+exactly the kind of bug internal-consistency tests can't catch and the whole
+reason this cross-check was worth doing.

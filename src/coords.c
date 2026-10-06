@@ -22,9 +22,12 @@
 // Hipparcos-era definition of the Galactic pole/node in ICRS: alpha_NGP=192.85948deg,
 // delta_NGP=27.12825deg, l_NCP=122.93192deg) is one of the most widely reproduced constants in
 // astronomical software (ESA 1997 Hipparcos & Tycho Catalogues Vol 1 Sec 1.5.3; reproduced
-// verbatim by astropy and many other packages) -- high confidence in the digits themselves, but
-// NOT yet independently re-derived or cross-checked against a running reference implementation
-// here, so treat as "very likely right" rather than "verified" until that happens.
+// verbatim by astropy and many other packages).
+//
+// Cross-checked 2026-10-06: tests/test_horizons_crosscheck.c applies this matrix's transpose to
+// orbital_elements.c's output and recovers a real JPL Horizons ICRS state vector for 1I/'Oumuamua
+// to ~1e-6 relative error -- confirming both the digits AND the sign/orientation convention are
+// right, not just "plausibly a rotation matrix".
 static const double A_G[3][3] = {
     {-0.0548755604162154, -0.8734370902348850, -0.4838350155487132},
     { 0.4941094278755837, -0.4448296299600112,  0.7469822444972189},

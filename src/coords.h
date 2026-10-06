@@ -1,13 +1,15 @@
 // Observed astrometry (ICRS RA/Dec/parallax/proper motion/radial velocity -- what Gaia and the
 // ISO orbital-element solutions actually give us) <-> Galactocentric Cartesian phase space (what
-// the integrator in integrator.h/potential.h needs). See the big caveat comment on
-// icrs_to_galactic() below before trusting this for real science -- the rotation matrix is a
-// well-known published constant, but the full 6D (position+velocity) pipeline has not yet been
-// cross-checked against an independent reference (astropy/galpy) the way potential.c's Milky Way
-// model is flagged as needing. The round-trip self-consistency test in
-// tests/test_coords.c (forward transform then exact inverse, recovering the original input to
-// float precision) is the only validation so far -- real but partial: it would catch a sign error
-// or a non-orthogonal matrix, but NOT catch, say, an internally-consistent but wrong convention.
+// the integrator in integrator.h/potential.h needs).
+//
+// The round-trip self-consistency test in tests/test_coords.c (forward transform then exact
+// inverse, recovering the original input to float precision) catches a sign error or a
+// non-orthogonal matrix, but can't catch an internally-consistent-but-wrong convention. That
+// independent check now exists: tests/test_horizons_crosscheck.c runs this module's shared
+// helio_equatorial_to_galactocentric_{pos,vel}() helpers (via orbital_elements.c) against a real
+// JPL Horizons state vector for 1I/'Oumuamua and matches to ~1e-6 relative error -- see that
+// file and coords.c's own comment on A_G. The Milky Way potential in potential.c is still flagged
+// as needing its own separate cross-check (a different subsystem, not validated by this one).
 #ifndef NOSTOS_COORDS_H
 #define NOSTOS_COORDS_H
 

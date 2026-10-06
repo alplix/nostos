@@ -7,6 +7,10 @@
 // interstellar objects, which are unbound by definition. An elliptical or parabolic caller would
 // need a different anomaly-solving branch this file doesn't have.
 //
+// Cross-checked 2026-10-06 against a real JPL Horizons state vector for 1I/'Oumuamua -- see
+// tests/test_horizons_crosscheck.c and orbital_elements.c's own comment. Position and velocity
+// both match to ~1e-6 relative error.
+//
 // Domain of validity, found the hard way while writing tests/test_orbital_elements.c: this
 // two-body (Sun + ISO only) Keplerian model is only meaningful while the ISO is actually within
 // the Sun's gravitational influence -- in practice a matter of YEARS around perihelion for a

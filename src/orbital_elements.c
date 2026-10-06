@@ -18,13 +18,16 @@
 //      velocity or the ICRS->Galactic rotation.
 //
 // Steps 2-5 are standard orbital mechanics (e.g. Curtis, "Orbital Mechanics for Engineering
-// Students"; Vallado, "Fundamentals of Astrodynamics and Applications") -- high confidence in the
-// general shape of these formulas from having seen them many times, but like coords.c's ICRS
-// rotation matrix, NOT yet independently cross-checked against a running reference (e.g. a known
-// JPL Horizons state vector for a real object) in this session. tests/test_orbital_elements.c's
-// energy/angular-momentum-conservation and r(nu=0)=q checks are real but partial -- they'd catch
-// a broken formula, not necessarily a subtly wrong one. Cross-checking against Horizons is a
-// real TODO before trusting this on the actual 'Oumuamua/Borisov elements.
+// Students"; Vallado, "Fundamentals of Astrodynamics and Applications").
+//
+// Cross-checked 2026-10-06 against a real JPL Horizons state vector for 1I/'Oumuamua (fetched
+// live from ssd.jpl.nasa.gov's Horizons API, not a textbook example) -- see
+// tests/test_horizons_crosscheck.c. Both position and velocity match to ~1e-6 relative error,
+// which validates not just the Kepler-solve/radial part (already covered by
+// tests/test_orbital_elements.c's energy/angular-momentum checks) but the actual DIRECTION of
+// the full perifocal->ecliptic->equatorial->Galactic rotation chain -- the thing the older
+// energy/angular-momentum/magnitude-only tests explicitly could not catch, since any orthogonal
+// rotation preserves those quantities regardless of whether the rotation itself is right.
 #include "orbital_elements.h"
 #include "units.h"
 #include <math.h>

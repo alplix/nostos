@@ -3,12 +3,13 @@ CFLAGS = -O2 -std=c99 -Wall -Wextra -lm
 
 .PHONY: test clean
 
-test: build/test_kepler build/test_milkyway build/test_coords build/test_encounter build/test_orbital_elements
+test: build/test_kepler build/test_milkyway build/test_coords build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck
 	./build/test_kepler
 	./build/test_milkyway
 	./build/test_coords
 	./build/test_encounter
 	./build/test_orbital_elements
+	./build/test_horizons_crosscheck
 
 build:
 	mkdir -p build
@@ -27,6 +28,9 @@ build/test_encounter: tests/test_encounter.c src/encounter.c src/encounter.h src
 
 build/test_orbital_elements: tests/test_orbital_elements.c src/orbital_elements.c src/orbital_elements.h src/coords.c src/coords.h src/vec3.h src/units.h | build
 	$(CC) $(CFLAGS) tests/test_orbital_elements.c src/orbital_elements.c src/coords.c -o build/test_orbital_elements -lm
+
+build/test_horizons_crosscheck: tests/test_horizons_crosscheck.c src/orbital_elements.c src/orbital_elements.h src/coords.c src/coords.h src/vec3.h src/units.h | build
+	$(CC) $(CFLAGS) tests/test_horizons_crosscheck.c src/orbital_elements.c src/coords.c -o build/test_horizons_crosscheck -lm
 
 clean:
 	rm -rf build
