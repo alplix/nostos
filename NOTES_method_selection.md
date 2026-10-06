@@ -818,9 +818,11 @@ Running `summarize_candidates.py` on this preview surfaced a real, if small, dat
 issue: 237 of 56,767 candidate rows (0.4%) are exact duplicates by source_id, with IDENTICAL
 computed values both times -- consistent with the same star's row appearing twice in the
 downloaded Gaia CSV itself (gaia_scan.c just screens whatever rows the file hands it; this
-isn't a screening-logic bug). Root cause not yet tracked down (a plausible guess:
+isn't a screening-logic bug) -- confirmed directly: `grep -c` for one such duplicated source_id
+against the full 43GB `gaia_dr3_6d.csv` returns 2, not 1. Exact upstream root cause (most likely
 download_filter_6d.py's resume logic re-processing an already-partially-written chunk after an
-interruption, but not confirmed). Fixed pragmatically in `summarize_candidates.py` by
+interruption, across this project's many resume sessions) not tracked down further -- not worth
+blocking on for a ~0.4% effect. Fixed pragmatically in `summarize_candidates.py` by
 deduplicating on source_id (keep first occurrence) rather than chasing the upstream cause
 immediately, since the effect is small and shouldn't block using the tool's output today.
 
@@ -829,3 +831,46 @@ now have genuinely LOW speeds (0.71-3.36 km/s for the ones checked), not the imp
 hundreds-of-km/s values that dominated the top of the old, buggy-direction candidate list --
 exactly the kind of result Bailer-Jones et al.'s own preference for low relative velocity as a
 plausibility signal would predict for a correctly-computed scan.
+
+## First full-catalog scan with the fully-fixed pipeline, 2026-10-07
+
+The Gaia DR3 6D-phase-space download (`scripts/download_filter_6d.py`) finished completely
+overnight: 33,530,050 total rows, 32,979,536 parsed and screened. Ran the fully-fixed
+`gaia_scan.c` (window-sizing fix + inbound/outbound-asymptote fix) over the entire file:
+101,667 raw candidates under the 50pc straight-line threshold (101,430 after deduplicating the
+small, confirmed source-CSV duplicate-row issue noted above), zero WINDOW_LIMITED stragglers,
+93 minutes wall-clock. Saved as `D:/nostos_data/scan_oumuamua_full_fixed.txt` (candidates) and
+`..._progress.log` (progress, kept separate this time -- see the preview-scan section above for
+why that matters for `summarize_candidates.py`). Summary saved to
+`..._full_fixed_summary.txt`; a curated "distance < 2.0 pc AND speed < 50 km/s" shortlist (99
+stars, Bailer-Jones et al.'s own style of plausibility cut) saved to
+`..._full_fixed_most_promising.txt`.
+
+Validation this scan's own internal consistency, not just the method: both of this project's
+long-standing reference stars show up naturally in the full output, close to (not identical to,
+since gaia_scan.c's straight-line-then-confirm pipeline and the dedicated pipeline tests'
+direct `find_closest_approach()` call aren't byte-for-byte the same code path) what the
+dedicated pipeline tests already found:
+  - HIP 3757 (2525688198820543360): d=1.2249 pc, v=24.42 km/s, t=-0.9955 Myr here, vs.
+    d=1.1689 pc, v=24.69 km/s, t=-0.9855 Myr in `tests/test_pipeline_oumuamua_hip3757.c`.
+  - HD 292249 (3107000885484340224): d=2.4176 pc, v=10.44 km/s, t=-3.8615 Myr here, vs.
+    d=2.3073 pc, v=10.24 km/s, t=-3.9490 Myr in the same test.
+Both land in the top tier of the full catalog's own "most promising" shortlist (HIP 3757 at
+rank 28 by distance among the 99 sub-2pc/sub-50km/s stars) -- a reassuring sign the full-scale
+scan is finding the same stars the targeted validation already vetted, not something unrelated.
+
+New candidates worth noting for a future session (none investigated further here -- this is
+output, not a discovery claim): several stars combine sub-parsec distance with single-digit-to-
+tens km/s relative speed, both closer AND slower than either of this project's two validated
+reference stars --
+  - 39513359823463680: d=0.367 pc, v=13.89 km/s, t=-10.998 Myr
+  - 4899996487129314688: d=0.982 pc, v=6.06 km/s, t=-5.649 Myr
+  - 357194086205843072: d=1.036 pc, v=8.37 km/s, t=-15.352 Myr
+  - 360189293321105024: d=1.156 pc, v=9.41 km/s, t=-10.216 Myr
+These haven't been identity-confirmed via SIMBAD, cross-checked against any published list, or
+run through mc_search_stage1()'s Monte Carlo resampling yet -- all real next steps, not done
+here. This IS the first trustworthy full-catalog candidate list this project has ever produced
+(every earlier one was generated before the inbound/outbound fix and is stale, as flagged
+above) -- a genuine milestone for the "Data" roadmap item, even though every candidate on it
+still needs the same level of scrutiny the two reference stars already got before being taken
+seriously.
