@@ -64,13 +64,16 @@ build/test_scan_logic: tests/test_scan_logic.c src/scan_logic.c src/scan_logic.h
 build/test_nostos_io: tests/test_nostos_io.c src/nostos_io.c src/nostos_io.h src/coords.c | build
 	$(CC) $(CFLAGS) tests/test_nostos_io.c src/nostos_io.c src/coords.c -o build/test_nostos_io -lm
 
-tools: build/gaia_scan build/oumuamua_velocity_covariance
+tools: build/gaia_scan build/oumuamua_velocity_covariance build/mc_vs_bestfit_ross573
 
 build/gaia_scan: src/gaia_scan.c src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c | build
 	$(CC) $(CFLAGS) -Isrc src/gaia_scan.c src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c -o build/gaia_scan -lm
 
 build/oumuamua_velocity_covariance: tools/oumuamua_velocity_covariance.c src/orbital_elements.c src/coords.c | build
 	$(CC) $(CFLAGS) tools/oumuamua_velocity_covariance.c src/orbital_elements.c src/coords.c -o build/oumuamua_velocity_covariance -lm
+
+build/mc_vs_bestfit_ross573: tools/mc_vs_bestfit_ross573.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c | build
+	$(CC) $(CFLAGS) tools/mc_vs_bestfit_ross573.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c -o build/mc_vs_bestfit_ross573 -lm
 
 clean:
 	rm -rf build

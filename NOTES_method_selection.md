@@ -639,3 +639,40 @@ for both objects. Strengthens the existing conclusion (see the 'Oumuamua pipelin
 above): this looks like something systematic about the overall comparison method (Bailer-Jones'
 exact reference epoch/frame, or Monte-Carlo-median-vs-single-best-fit), not a per-object or
 per-star bug. Left open, not papered over.
+
+## Testing the "Monte-Carlo-median-vs-single-best-fit" hypothesis, 2026-10-06 -- RULED OUT
+
+The one remaining untested hypothesis for the open 'Oumuamua/Borisov discrepancy (see both
+pipeline-validation sections above) was that Bailer-Jones et al.'s reported numbers are MEDIANS
+over ~2000 Monte Carlo surrogates resampling both bodies' full phase-space uncertainty, while
+this project's pipeline tests so far only ever reported the single deterministic best-fit
+trajectory -- and that those two quantities might differ substantially for a real geometric
+reason (a deterministic trajectory has one particular, not necessarily minimal, miss distance;
+resampling over an uncertainty ellipsoid explores many nearby trajectories, some of which could
+pass much closer by chance, pulling the MEDIAN below the deterministic value).
+
+Tested this directly with `tools/mc_vs_bestfit_ross573.c`: resampled BOTH Ross 573's full 6D
+state (Gaia DR2's own correlated 5x5 astrometric covariance -- ra, dec, parallax, pmra, pmdec --
+plus its independent radial-velocity error, all queried directly from gaiadr2.gaia_source) AND
+2I/Borisov's full orbital solution (JPL SBDB's own 6x6 marginal covariance over e, q, tp, node,
+peri, i, same source as the 'Oumuamua covariance work above), 2000 times each (matching
+Bailer-Jones et al.'s own count), running the exact same `find_closest_approach()` this
+project's pipeline tests use on every draw.
+
+Result: median distance 13.78 pc (90% CI 13.53-14.00 pc) -- essentially IDENTICAL to the
+deterministic best-fit's 13.77 pc, and a very tight interval around it. Same for time
+(-0.5227 Myr median vs -0.523 Myr best-fit) and speed (29.77 vs 29.8 km/s). **This rules out
+the hypothesis**: resampling the full real uncertainty on both bodies barely moves the result at
+all, because both Ross 573's Gaia astrometry and Borisov's orbit solution are so tightly
+constrained (same conclusion already reached for 'Oumuamua's own orbit-fit uncertainty, see the
+velocity-covariance section above -- sub-m/s) that the uncertainty ellipsoid is far too small to
+explain a ~200x gap in miss distance by chance alone.
+
+This is a real, if negative, finding: it eliminates "we're comparing the wrong kind of number"
+as the explanation, and narrows the remaining open possibilities down to something about
+Bailer-Jones et al.'s exact method that this test didn't reproduce -- their precise reference
+epoch/frame convention, their specific Galactic potential model (axisymmetric, parameters not
+fully specified in the abstract-level summary read so far), or a genuine difference in which
+solar motion/LSR convention is used for `solar_params_default`. None of these have been
+checked against Bailer-Jones et al.'s actual paper text in detail yet -- that remains the next
+real step, not a MC-sampling artifact.
