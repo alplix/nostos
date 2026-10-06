@@ -23,7 +23,9 @@ LIST_FILE = f"{DATA_DIR}/gaia_file_list.txt"
 OUT_FILE = f"{DATA_DIR}/gaia_dr3_6d.csv"
 PROGRESS_FILE = f"{DATA_DIR}/progress.txt"
 RV_COL = "radial_velocity"
-N_WORKERS = 16
+N_WORKERS = 8  # halved 2026-10-06 -- combined with the futures-dict leak fix
+# below, this keeps peak RAM to roughly N_WORKERS chunks' worth of in-flight
+# decompressed/parsed data instead of growing for the whole ~1000+ chunk run
 
 write_lock = threading.Lock()
 progress_lock = threading.Lock()
@@ -116,6 +118,10 @@ def main():
         futures = {pool.submit(process_one, key): key for key, size in remaining}
         for future in as_completed(futures):
             key, header, rows, total = future.result()
+            del futures[future]  # otherwise every completed future's result (the
+            # filtered row data) stays referenced by this dict for the rest of the
+            # run, since nothing else ever drops it -- unbounded RAM growth over
+            # ~1000+ chunks instead of memory staying bounded to the in-flight ones.
             with write_lock:
                 if header is not None and not header_written.is_set():
                     writer.writerow(header)
