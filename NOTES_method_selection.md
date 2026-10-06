@@ -87,13 +87,42 @@ once is good enough until a real candidate encounter is found (then MC only
 that specific star more carefully). Leaning toward the latter for the first
 working pipeline, to keep the per-star-per-WU cost down, but not decided.
 
-## Coordinate transform (not started)
+## Coordinate transform (written, partially validated)
 
-Converting Gaia's (RA, Dec, parallax, proper motion, radial velocity) and an
-ISO's heliocentric orbital elements into a common Galactocentric Cartesian
-frame isn't written yet. Needs: solar position (R0, z0) and velocity
-(circular + peculiar motion) constants — common modern choices are
-R0=8.122 kpc (GRAVITY Collaboration 2018) and peculiar motion
-(U,V,W)=(11.1, 12.24, 7.25) km/s (Schönrich et al. 2010), but not yet decided
-for this project specifically (should match whatever the final Milky Way
-potential model assumes for its own R0/v_c, to stay self-consistent).
+`src/coords.c` converts Gaia-style astrometry (RA, Dec, parallax, proper
+motion, radial velocity) to/from Galactocentric Cartesian phase space.
+Frame convention (our own explicit choice, documented at the top of
+coords.c): right-handed, Galactic center at the origin, Sun at (-r0, 0, z0),
++X toward the Galactic center, +Y in the direction of Galactic rotation,
++Z toward the North Galactic Pole.
+
+Solar parameters: r0=8.122 kpc (GRAVITY Collaboration 2018), z0=0.0208 kpc,
+v_circ=229 km/s, peculiar motion (U,V,W)=(11.1, 12.24, 7.25) km/s (Schönrich,
+Binney & Dehnen 2010, U positive toward the Galactic center) —
+`solar_params_default` in `src/coords.h`. Rough cross-check against
+`potential.c`'s own placeholder Milky Way model: its rotation curve at
+R=8.122 kpc comes out to 233.04 km/s (`tests/test_milkyway.c`), a few km/s
+off from the 229 km/s assumed here — close enough that the two aren't
+flagrantly inconsistent, but neither one is a validated number yet, so don't
+read anything into the agreement.
+
+The ICRS<->Galactic rotation matrix (`A_G` in coords.c) is a specific,
+widely-reproduced published constant (ESA 1997 Hipparcos & Tycho Catalogues,
+derived from the IAU-defined Galactic pole/node in ICRS) — high confidence in
+the digits, but genuinely not re-derived or cross-checked against a running
+reference here (no internet access in the session that wrote this). The
+proper-motion-to-transverse-velocity constant (4.74...  km/s per mas/yr*pc,
+via AUYR_TO_KMS in coords.c) *was* derived from first principles (AU in km,
+Julian year in seconds) rather than recalled, so that one's on firmer
+footing.
+
+**Validation so far**: `tests/test_coords.c` round-trips astrometry ->
+Galactocentric phase space -> astrometry across several sky positions
+(including near both celestial poles and the ra=0/360 wrap) and recovers the
+original input to ~1e-13 relative error or better. This proves the forward
+and inverse transforms are mutually consistent (would catch a sign error or
+a non-orthogonal matrix) — it does NOT prove the convention matches any
+external reference. **Real TODO**: cross-check a handful of known stars
+(e.g. compute Galactocentric UVW for a star with a published value in the
+literature, or diff against astropy's `ICRS` -> `Galactocentric` transform
+directly) before trusting this on real Gaia data.
