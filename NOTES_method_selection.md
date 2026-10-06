@@ -608,3 +608,34 @@ solution's own best-fit point rather than re-deriving a covariance at the other 
 SBDB's on-demand API doesn't offer), since the two points are close enough that the local linear
 sensitivity is essentially the same either way -- a reasonable approximation, not treated as
 exact.
+
+## Borisov pipeline validation (second ISO), 2026-10-06
+
+Extended "Pipeline validation" to a second, independent interstellar object, per the README's
+own "Borisov not attempted yet" item: `tests/test_pipeline_borisov_ross573.c`, targeting Ross
+573 (Gaia DR2 5162123155863791744), the single CLOSEST encounter Bailer-Jones, Farnocchia, Ye,
+Meech & Micheli 2020 (A&A, arXiv:1912.10213) found for 2I/Borisov across their entire
+7.4-million-star Gaia DR2 search -- their headline result, not a hand-picked easy case:
+t=-909 kyr, d=0.068 pc, v=22.6 km/s (Monte Carlo medians, same caveat as the 'Oumuamua
+comparisons: not a single best-fit trajectory).
+
+2I/Borisov's orbital elements came from JPL's Small-Body Database (same source/method as
+'Oumuamua's, see test_horizons_crosscheck.c). The evaluation epoch (3.0 years post-perihelion)
+was chosen the same way 'Oumuamua's 9.08-year point was -- found empirically where the computed
+velocity converges to its asymptotic value (within ~0.03% of the 10-year value, and matching
+the orbit's own analytic hyperbolic-excess speed sqrt(-GM_sun/a)=32.28 km/s heliocentric).
+
+Result: same qualitative pattern as 'Oumuamua's two cases -- right sign (past), right
+order-of-magnitude relative speed (29.8 vs 22.6 km/s, actually the closest speed match of the
+three stars so far), but a much shallower/earlier minimum than reported (13.77 pc at t=-0.523
+Myr, vs their 0.068 pc at -0.909 Myr -- about 200x off in distance, worse than either
+'Oumuamua case). Checked manually with the search window widened to 5.0 Myr: found the exact
+same minimum, so this isn't a window-truncation artifact (the same check already done for HD
+292249).
+
+This is now THREE stars across TWO independent interstellar objects showing the same
+qualitative mismatch, with every pipeline component independently validated and checking out
+for both objects. Strengthens the existing conclusion (see the 'Oumuamua pipeline section
+above): this looks like something systematic about the overall comparison method (Bailer-Jones'
+exact reference epoch/frame, or Monte-Carlo-median-vs-single-best-fit), not a per-object or
+per-star bug. Left open, not papered over.
