@@ -29,13 +29,24 @@ OUMUAMUA_ELEMENTS = {
     "peri_deg": 241.8043518577817,
 }
 
-# Placeholder velocity-uncertainty covariance (kpc/Myr)^2 -- NOT yet derived from 'Oumuamua's real
-# published orbital-solution covariance matrix (that conversion -- from whatever units/parametrization
-# the JPL/MPC solution's covariance is quoted in, into this project's internal kpc/Myr^2 velocity
-# covariance -- is itself unfinished work, a real TODO, not a decision made here). Small enough that
-# mc_search_stage1()'s 100 clones will cluster tightly around the best-fit trajectory until a real
-# covariance is used.
-PLACEHOLDER_VEL_COV_KPCMYR2 = (1e-6, 0.0, 0.0, 1e-6, 0.0, 1e-6)  # cov00 cov01 cov02 cov11 cov12 cov22
+# 'Oumuamua's REAL Galactocentric velocity-uncertainty covariance (kpc/Myr)^2, propagated from
+# JPL Small-Body Database's actual orbit-fit covariance matrix (Solution 7c / Micheli et al.
+# 2018, fetched 2026-10-06 via
+# https://ssd-api.jpl.nasa.gov/sbdb.api?sstr=1I&full-prec=true&cov=mat) through
+# orbital_elements_to_galactocentric() -- see tools/oumuamua_velocity_covariance.c for the full
+# method (linear propagation via a numerical Jacobian, verified stable under a 5x step-size
+# change) and its own comment for the honest caveat on evaluating at that solution's own epoch
+# rather than this file's OUMUAMUA_ELEMENTS' slightly different one (same underlying solution,
+# ~1-2e-4 relative difference in the elements themselves). Per-axis 1-sigma: ~0.00016, 0.00071,
+# 0.00069 km/s -- 'Oumuamua's orbit is exceptionally well-constrained (80 days of arcsecond-
+# level astrometry), so sub-m/s velocity uncertainty is the real, literature-consistent answer
+# here, not a bug -- replaces the earlier placeholder (1e-6 (kpc/Myr)^2 on the diagonal, about
+# 1 km/s per axis) that this TODO used to flag as unfinished.
+OUMUAMUA_VEL_COV_KPCMYR2 = (
+    2.7356274850e-14, -1.2006509136e-13, 1.1720619917e-13,
+    5.2749871264e-13, -5.1515175807e-13,
+    5.0350089626e-13,
+)  # cov00 cov01 cov02 cov11 cov12 cov22
 
 DEFAULT_SEED_BASE = 1  # a fixed, reproducible default -- a real generator would pick this per
                         # work unit (e.g. derived from the ISO + chunk index) for genuinely
@@ -53,7 +64,7 @@ def write_work_unit(path, stars_chunk):
     with open(path, "w") as f:
         el = OUMUAMUA_ELEMENTS
         f.write(f"{el['e']} {el['q_au']} {el['i_deg']} {el['node_deg']} {el['peri_deg']}\n")
-        f.write(" ".join(str(x) for x in PLACEHOLDER_VEL_COV_KPCMYR2) + "\n")
+        f.write(" ".join(str(x) for x in OUMUAMUA_VEL_COV_KPCMYR2) + "\n")
         f.write(f"{DEFAULT_SEED_BASE}\n")
         f.write(f"{DEFAULT_TOTAL_TIME_MYR} {DEFAULT_N_STEPS} {DEFAULT_DISTANCE_THRESHOLD_PC}\n")
         for star in stars_chunk:

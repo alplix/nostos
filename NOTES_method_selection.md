@@ -563,3 +563,48 @@ of 1000 stars/work-unit would take on the order of 38 MINUTES per work unit -- c
 (a real run was killed after 12+ minutes of 100% CPU, still not done). `scripts/make_work_units.py`'s
 default chunk size lowered to 150 stars/WU (~5.75 min on this reference hardware) based on that
 real number, not a guess.
+
+## 'Oumuamua's real velocity-uncertainty covariance, 2026-10-06
+
+`scripts/make_work_units.py` had been using a placeholder velocity covariance for 'Oumuamua's
+Monte Carlo clones (1e-6 (kpc/Myr)^2 on the diagonal, about 1 km/s per axis) -- explicitly
+flagged in its own comment as not yet derived from the real published orbit solution. Replaced
+with a real one, computed from first principles rather than guessed or looked up as a final
+number:
+
+1. Fetched 'Oumuamua's actual orbit-fit covariance matrix directly from JPL's Small-Body
+   Database API (`https://ssd-api.jpl.nasa.gov/sbdb.api?sstr=1I&full-prec=true&cov=mat`) --
+   a real 9x9 matrix over (e, q, tp, node, peri, i, A1, A2, A3), Solution 7c / Micheli et al.
+   2018 (the same orbit determination, data_arc 80 days, this project's OUMUAMUA_ELEMENTS
+   already uses elsewhere -- see the caveat below on the small epoch difference).
+2. The first six of those nine parameters are exactly the ones
+   `orbital_elements_to_galactocentric()` takes (tp enters through this project's `t_myr`
+   argument, not a struct field, so its uncertainty is propagated as a perturbation of t_myr).
+   The other three (A1/A2/A3, non-gravitational-acceleration model parameters) aren't used by
+   this project's two-body Keplerian model at all. Marginalizing them out by taking the top-left
+   6x6 block isn't an approximation -- the marginal covariance of a subset of jointly-Gaussian
+   variables IS exactly that principal submatrix.
+3. Built a numerical Jacobian of Galactocentric velocity (at this project's own settled
+   asymptotic-regime evaluation point, ~9.08 years post-perihelion) with respect to each of
+   those six parameters, via central finite differences through the project's own
+   `orbital_elements_to_galactocentric()` -- not a hand-derived formula. Propagated:
+   Cov_vel (3x3) = J^T * Cov6 * J. Verified stable (matching to ~10 significant figures) under
+   a 5x change in the finite-difference step size, so this isn't finite-difference noise.
+   See `tools/oumuamua_velocity_covariance.c` for the full, heavily-commented implementation.
+
+Result: per-axis 1-sigma velocity uncertainty of about 0.00016, 0.00071, 0.00069 km/s
+(sub-m/s). This is NOT a bug or an implausibly tight number -- 'Oumuamua's orbit is one of the
+most precisely determined hyperbolic orbits ever fit (80 days of arcsecond-level astrometry on
+a nearby, fast-moving object), and the literature (e.g. Feng & Jones 2018) does describe its
+velocity as constrained to well below 1 m/s precision in places. `mc_search_stage1()`'s 100
+clones will now cluster far more tightly around the best-fit trajectory than the old placeholder
+implied -- correctly, since the real uncertainty is that small, not because of a bug.
+
+Caveat stated plainly, not glossed over: SBDB's default-returned solution is quoted at epoch JD
+2458080.5, while OUMUAMUA_ELEMENTS (used elsewhere in this project) came from a JPL Horizons
+fetch at JD 2458041.5 -- the same underlying solution, propagated/reported at a different epoch,
+with element values agreeing to ~1-2e-4 relative. The Jacobian here is evaluated at THIS
+solution's own best-fit point rather than re-deriving a covariance at the other epoch (which
+SBDB's on-demand API doesn't offer), since the two points are close enough that the local linear
+sensitivity is essentially the same either way -- a reasonable approximation, not treated as
+exact.
