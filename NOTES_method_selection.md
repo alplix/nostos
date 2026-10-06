@@ -490,3 +490,42 @@ closest-approach one). Full results and any real candidate list are
 pending both the download finishing and a proper review pass (e.g.
 cross-matching candidates against SIMBAD, sanity-checking relative
 velocities) -- nothing here is being reported as a discovery yet.
+
+## First real (partial) scan results, 2026-10-06
+
+Full scan run against however much of the Gaia download had completed at the time (27.77 million
+of ~33 million rows, download itself still at ~81% -- see README.md's "Data" roadmap item): 802
+stars found with a straight-line closest approach under 5 pc, 769 of them with a "plausible"
+(<150 km/s) relative velocity. A handful are genuinely interesting by the SAME standard
+Bailer-Jones et al. 2018 themselves use (low relative velocity, not just small distance):
+
+- source_id 5377679146317054080: v=19.4 km/s, d=0.86 pc, t=-2.65 Myr
+- source_id 5497072086021346688: v=15.7 km/s, d=1.27 pc, t=-0.82 Myr
+- source_id 5667826276174997760: v=13.2 km/s (the lowest in the whole list), d=11.5 pc, t=-9.05 Myr
+
+These are genuinely comparable in quality to Bailer-Jones' own published HIP 3757/HD 292249
+numbers by the velocity-plausibility standard -- but NOT being reported as real candidates yet,
+deliberately, for two concrete reasons:
+1. **Partial data**: ~19% of the Gaia download was still missing when this ran. A re-run once
+   `scripts/download_filter_6d.py` finishes is needed before any list is even complete, let alone
+   final.
+2. **The unresolved HIP 3757/HD 292249 discrepancy directly applies here too**: this project's own
+   pipeline doesn't yet reproduce Bailer-Jones' published distance/time for either of their known
+   candidates (see this file's own "Pipeline validation" section above) -- every individual
+   component is independently validated, but the full encounter-geometry comparison still shows an
+   unexplained ~15-40x gap on distance/time specifically. Until that's understood, the ABSOLUTE
+   distance/time numbers this scan reports for ANY candidate (including these three) should be
+   treated as indicative/ranking information only, not as trustworthy physical measurements -- the
+   same caution that already applies to the known candidates applies equally to new ones found the
+   same way.
+
+Neither HIP 3757 nor HD 292249 appear in this candidate list (both have straight-line distances
+of ~24-27 pc in this project's own model, well above the 5 pc screening threshold) -- consistent
+with, not contradicting, what was already found for them specifically; they were never expected to
+pass a 5pc screen given this project's own numbers for them.
+
+Next steps once the download finishes: re-run the full scan for a true final pass; consider
+re-visiting the 5pc threshold (loosen it, since the known candidates' own true-encounter distances
+in Bailer-Jones' numbers would not have passed a 5pc screen under THIS project's model either, by
+the same logic); and the real priority remains resolving the underlying discrepancy before treating
+any of these numbers as trustworthy.

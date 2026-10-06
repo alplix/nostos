@@ -29,7 +29,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
-#include <vector>
 
 #include "boinc_api.h"
 #include "filesys.h"
@@ -39,75 +38,7 @@
 #include "potential.h"
 #include "mc_search.h"
 #include "units.h"
-
-struct StarRecord {
-    uint64_t source_id;
-    Astrometry astrometry;
-};
-
-static bool read_input(
-    const char *path, OrbitalElements *el, double vel_cov[3][3], uint64_t *seed_base,
-    double *total_time_myr, int *n_steps, double *distance_threshold_pc,
-    std::vector<StarRecord> *stars
-) {
-    FILE *f = boinc_fopen(path, "r");
-    if (!f) {
-        fprintf(stderr, "can't open input file %s\n", path);
-        return false;
-    }
-
-    double cov00, cov01, cov02, cov11, cov12, cov22;
-    if (fscanf(f, "%lf %lf %lf %lf %lf", &el->e, &el->q_au, &el->i_deg, &el->node_deg, &el->peri_deg) != 5) {
-        fprintf(stderr, "malformed input file: can't read orbital elements\n");
-        fclose(f);
-        return false;
-    }
-    if (fscanf(f, "%lf %lf %lf %lf %lf %lf", &cov00, &cov01, &cov02, &cov11, &cov12, &cov22) != 6) {
-        fprintf(stderr, "malformed input file: can't read velocity covariance\n");
-        fclose(f);
-        return false;
-    }
-    vel_cov[0][0] = cov00; vel_cov[0][1] = cov01; vel_cov[0][2] = cov02;
-    vel_cov[1][0] = cov01; vel_cov[1][1] = cov11; vel_cov[1][2] = cov12;
-    vel_cov[2][0] = cov02; vel_cov[2][1] = cov12; vel_cov[2][2] = cov22;
-
-    unsigned long long seed_tmp;
-    if (fscanf(f, "%llu", &seed_tmp) != 1) {
-        fprintf(stderr, "malformed input file: can't read seed_base\n");
-        fclose(f);
-        return false;
-    }
-    *seed_base = (uint64_t)seed_tmp;
-
-    if (fscanf(f, "%lf %d %lf", total_time_myr, n_steps, distance_threshold_pc) != 3) {
-        fprintf(stderr, "malformed input file: can't read search parameters\n");
-        fclose(f);
-        return false;
-    }
-
-    StarRecord rec;
-    unsigned long long sid;
-    while (fscanf(f, "%llu %lf %lf %lf %lf %lf %lf",
-                  &sid, &rec.astrometry.ra_deg, &rec.astrometry.dec_deg, &rec.astrometry.parallax_mas,
-                  &rec.astrometry.pmra_masyr, &rec.astrometry.pmdec_masyr, &rec.astrometry.rv_kms) == 7) {
-        rec.source_id = (uint64_t)sid;
-        stars->push_back(rec);
-    }
-
-    fclose(f);
-    return true;
-}
-
-// Mixes a per-work-unit seed with a per-star source_id into one independent-looking 64-bit
-// seed -- splitmix64's own mixing step (see montecarlo.c), applied here once up front so
-// neighboring source_ids (which, within one Gaia catalog chunk, are often numerically close)
-// don't produce visibly-correlated Monte Carlo draws between stars.
-static uint64_t combine_seed(uint64_t seed_base, uint64_t source_id) {
-    uint64_t z = seed_base ^ (source_id + 0x9E3779B97F4A7C15ULL + (seed_base << 6) + (seed_base >> 2));
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-    return z ^ (z >> 31);
-}
+#include "nostos_io.h"
 
 int main(int argc, char **argv) {
     BOINC_OPTIONS options;
@@ -135,9 +66,14 @@ int main(int argc, char **argv) {
     uint64_t seed_base;
     double total_time_myr, distance_threshold_pc;
     int n_steps;
-    std::vector<StarRecord> stars;
-    if (!read_input(input_path, &el, vel_cov, &seed_base, &total_time_myr, &n_steps,
-                     &distance_threshold_pc, &stars)) {
+    StarRecord *stars = NULL;
+    size_t n_stars = 0;
+    FILE *inf = boinc_fopen(input_path, "r");
+    bool parsed = inf && parse_input_stream(inf, &el, vel_cov, &seed_base, &total_time_myr,
+                                             &n_steps, &distance_threshold_pc, &stars, &n_stars);
+    if (inf) fclose(inf);
+    if (!parsed) {
+        fprintf(stderr, "can't open or parse input file %s\n", input_path);
         boinc_finish(1);
         return 1;
     }
@@ -154,6 +90,7 @@ int main(int argc, char **argv) {
     double t_eval_myr = 9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
     if (!orbital_elements_to_galactocentric(el, t_eval_myr, &solar_params_default, &iso_ps)) {
         fprintf(stderr, "invalid orbital elements (not hyperbolic, or q<=0)\n");
+        free(stars);
         boinc_finish(1);
         return 1;
     }
@@ -166,19 +103,20 @@ int main(int argc, char **argv) {
     if (cp) {
         if (fscanf(cp, "%zu", &start_index) != 1) start_index = 0;
         fclose(cp);
-        fprintf(stderr, "resuming from checkpoint: star %zu of %zu\n", start_index, stars.size());
+        fprintf(stderr, "resuming from checkpoint: star %zu of %zu\n", start_index, n_stars);
     }
 
     FILE *outf = boinc_fopen(output_path, start_index > 0 ? "a" : "w");
     if (!outf) {
         fprintf(stderr, "can't open output file %s\n", output_path);
+        free(stars);
         boinc_finish(1);
         return 1;
     }
 
     double threshold_kpc = distance_threshold_pc / 1000.0;
 
-    for (size_t i = start_index; i < stars.size(); i++) {
+    for (size_t i = start_index; i < n_stars; i++) {
         const StarRecord &star = stars[i];
         PhaseSpace star_ps;
         astrometry_to_galactocentric(star.astrometry, &solar_params_default, &star_ps);
@@ -205,12 +143,13 @@ int main(int argc, char **argv) {
             boinc_checkpoint_completed();
         }
 
-        if (!stars.empty()) {
-            boinc_fraction_done((double)(i + 1) / (double)stars.size());
+        if (n_stars > 0) {
+            boinc_fraction_done((double)(i + 1) / (double)n_stars);
         }
     }
 
     fclose(outf);
+    free(stars);
     boinc_finish(0);
     return 0;
 }

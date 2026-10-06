@@ -3,7 +3,7 @@ CFLAGS = -O2 -std=c99 -Wall -Wextra -lm
 
 .PHONY: test clean tools
 
-test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_santillan build/test_coords build/test_coords_astropy_crosscheck build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck build/test_montecarlo build/test_mc_search build/test_pipeline_oumuamua_hip3757 build/test_scan_logic
+test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_santillan build/test_coords build/test_coords_astropy_crosscheck build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck build/test_montecarlo build/test_mc_search build/test_pipeline_oumuamua_hip3757 build/test_scan_logic build/test_nostos_io
 	./build/test_kepler
 	./build/test_milkyway_galpy
 	./build/test_milkyway_allen_santillan
@@ -16,6 +16,7 @@ test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_sant
 	./build/test_mc_search
 	./build/test_pipeline_oumuamua_hip3757
 	./build/test_scan_logic
+	./build/test_nostos_io
 
 build:
 	mkdir -p build
@@ -55,6 +56,9 @@ build/test_pipeline_oumuamua_hip3757: tests/test_pipeline_oumuamua_hip3757.c src
 
 build/test_scan_logic: tests/test_scan_logic.c src/scan_logic.c src/scan_logic.h src/encounter.c src/potential.c | build
 	$(CC) $(CFLAGS) tests/test_scan_logic.c src/scan_logic.c src/encounter.c src/potential.c -o build/test_scan_logic -lm
+
+build/test_nostos_io: tests/test_nostos_io.c src/nostos_io.c src/nostos_io.h src/coords.c | build
+	$(CC) $(CFLAGS) tests/test_nostos_io.c src/nostos_io.c src/coords.c -o build/test_nostos_io -lm
 
 tools: build/gaia_scan
 

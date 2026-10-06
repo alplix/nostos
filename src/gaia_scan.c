@@ -34,7 +34,15 @@
 
 #define MAX_LINE 65536
 #define MAX_COLS 200
-#define CANDIDATE_THRESHOLD_PC 5.0
+// Widened from an initial 5.0 pc, 2026-10-06: under THIS project's own model, Bailer-Jones et
+// al. 2018's own two best-documented candidates (HIP 3757, HD 292249) come out at ~24-27 pc in
+// the straight-line screen -- nowhere near their OWN reported 0.6-1.6 pc (the still-unresolved
+// discrepancy documented at length in NOTES_method_selection.md's "Pipeline validation" section).
+// A 5 pc threshold calibrated assuming agreement with their absolute scale would have silently
+// excluded the exact kind of candidate this project's own validated test cases turn out to look
+// like under its own model. Widened to a threshold that's actually self-consistent with how this
+// project's own numbers behave, not borrowed from a different model's scale.
+#define CANDIDATE_THRESHOLD_PC 50.0
 
 typedef struct {
     int source_id, ra, dec, parallax, pmra, pmdec, rv;
