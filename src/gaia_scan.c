@@ -30,6 +30,7 @@
 #include "encounter.h"
 #include "potential.h"
 #include "units.h"
+#include "scan_logic.h"
 
 #define MAX_LINE 65536
 #define MAX_COLS 200
@@ -161,13 +162,8 @@ int main(int argc, char **argv) {
         PhaseSpace star_ps;
         astrometry_to_galactocentric(a, &solar_params_default, &star_ps);
 
-        Vec3 r0 = v3_sub(star_ps.pos, iso_ps.pos);
-        Vec3 vrel = v3_sub(star_ps.vel, iso_ps.vel);
-        double vrel2 = v3_dot(vrel, vrel);
-        if (vrel2 <= 0) continue; // degenerate (star and ISO moving identically -- never happens for real data)
-        double t_star = -v3_dot(r0, vrel) / vrel2;
-        Vec3 sep = v3_add(r0, v3_scale(vrel, t_star));
-        double d_star_pc = v3_norm(sep) * 1000.0;
+        double t_star, d_star_pc;
+        if (!straight_line_closest_approach(iso_ps, star_ps, &t_star, &d_star_pc)) continue; // degenerate, never happens for real data
 
         // Only PAST encounters matter for an origin search (t_star>0 means the straight-line
         // closest approach is in the future, irrelevant to "where did the ISO come from" -- real
@@ -188,21 +184,13 @@ int main(int argc, char **argv) {
             // Fixed with a generous, still-bounded widening (2.5x + a larger fixed pad) AND an
             // explicit edge check that re-runs with a wider window if the result lands within one
             // step of either boundary, rather than trusting a result that might just be truncated.
-            double window_myr = fabs(t_star) * 2.5 + 2.0;
-            double rel_speed_kms = 0.0;
-            EncounterResult r;
-            for (int attempt = 0; attempt < 4; attempt++) {
-                int n_steps = (int)(window_myr * 2000.0);
-                if (n_steps < 1000) n_steps = 1000;
-                State star_state = {star_ps.pos, star_ps.vel};
-                State iso_state = {iso_ps.pos, iso_ps.vel};
-                r = find_closest_approach(&mw, &star_state, &iso_state, -window_myr, n_steps);
-                double dt = window_myr / n_steps;
-                int at_edge = (fabs(fabs(r.time_at_min_myr) - window_myr) < 2.0 * dt);
-                if (!at_edge) break;
-                window_myr *= 2.0; // the true minimum is apparently further out -- widen and retry
-            }
-            rel_speed_kms = nostos_kpcmyr_to_kms(v3_norm(v3_sub(r.star_vel_at_min, r.iso_vel_at_min)));
+            // Both this and the straight-line screen above were pulled out into scan_logic.c/.h
+            // after these two bugs were found by ad-hoc testing with zero automated coverage --
+            // see tests/test_scan_logic.c, which now exercises both independently.
+            double initial_window_myr = fabs(t_star) * 2.5 + 2.0;
+            double window_myr;
+            EncounterResult r = gravity_confirm(&mw, star_ps, iso_ps, initial_window_myr, 2000, 4, &window_myr);
+            double rel_speed_kms = nostos_kpcmyr_to_kms(v3_norm(v3_sub(r.star_vel_at_min, r.iso_vel_at_min)));
 
             printf("%llu straight_line_d_pc=%.4f straight_line_t_myr=%.4f "
                    "gravity_d_pc=%.4f gravity_t_myr=%.4f rel_speed_kms=%.2f search_window_myr=%.2f\n",
