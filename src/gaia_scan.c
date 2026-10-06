@@ -175,19 +175,39 @@ int main(int argc, char **argv) {
         // backward regardless of t_star's sign, so a future-candidate star got "confirmed" against
         // an unrelated backward trajectory and produced a wildly wrong, meaningless distance).
         if (t_star < 0 && d_star_pc < CANDIDATE_THRESHOLD_PC) {
-            // Confirm with the real encounter search (full gravity), searching comfortably past
-            // the straight-line estimate's own time in case gravity shifts things meaningfully.
-            double window_myr = fabs(t_star) * 1.5 + 0.5;
-            int n_steps = (int)(window_myr * 2000.0);
-            if (n_steps < 1000) n_steps = 1000;
-            State star_state = {star_ps.pos, star_ps.vel};
-            State iso_state = {iso_ps.pos, iso_ps.vel};
-            EncounterResult r = find_closest_approach(&mw, &star_state, &iso_state, -window_myr, n_steps);
-            double rel_speed_kms = nostos_kpcmyr_to_kms(v3_norm(v3_sub(r.star_vel_at_min, r.iso_vel_at_min)));
+            // Confirm with the real encounter search (full gravity). The straight-line estimate's
+            // OWN time is only a straight-line-model prediction of where to center the search
+            // window -- over tens of Myr (this project's backward-integration window goes out to
+            // 100 Myr, see NOTES_method_selection.md), gravity's cumulative effect can shift the
+            // true minimum meaningfully away from that naive guess, which is part of why the
+            // gravity confirmation exists at all. Real bug found while building this: the first
+            // window (1.5x the straight-line t_star) was often too narrow for large |t_star|,
+            // silently reporting the window's own EDGE (not a true minimum) as the answer for
+            // several candidates -- visible as a far LARGER "confirmed" distance than the
+            // straight-line screen found, the opposite of what a real confirmation should ever do.
+            // Fixed with a generous, still-bounded widening (2.5x + a larger fixed pad) AND an
+            // explicit edge check that re-runs with a wider window if the result lands within one
+            // step of either boundary, rather than trusting a result that might just be truncated.
+            double window_myr = fabs(t_star) * 2.5 + 2.0;
+            double rel_speed_kms = 0.0;
+            EncounterResult r;
+            for (int attempt = 0; attempt < 4; attempt++) {
+                int n_steps = (int)(window_myr * 2000.0);
+                if (n_steps < 1000) n_steps = 1000;
+                State star_state = {star_ps.pos, star_ps.vel};
+                State iso_state = {iso_ps.pos, iso_ps.vel};
+                r = find_closest_approach(&mw, &star_state, &iso_state, -window_myr, n_steps);
+                double dt = window_myr / n_steps;
+                int at_edge = (fabs(fabs(r.time_at_min_myr) - window_myr) < 2.0 * dt);
+                if (!at_edge) break;
+                window_myr *= 2.0; // the true minimum is apparently further out -- widen and retry
+            }
+            rel_speed_kms = nostos_kpcmyr_to_kms(v3_norm(v3_sub(r.star_vel_at_min, r.iso_vel_at_min)));
 
             printf("%llu straight_line_d_pc=%.4f straight_line_t_myr=%.4f "
-                   "gravity_d_pc=%.4f gravity_t_myr=%.4f rel_speed_kms=%.2f\n",
-                   source_id, d_star_pc, t_star, r.min_distance_kpc * 1000.0, r.time_at_min_myr, rel_speed_kms);
+                   "gravity_d_pc=%.4f gravity_t_myr=%.4f rel_speed_kms=%.2f search_window_myr=%.2f\n",
+                   source_id, d_star_pc, t_star, r.min_distance_kpc * 1000.0, r.time_at_min_myr,
+                   rel_speed_kms, window_myr);
             fflush(stdout);
             n_candidates++;
         }
