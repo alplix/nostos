@@ -874,3 +874,23 @@ here. This IS the first trustworthy full-catalog candidate list this project has
 above) -- a genuine milestone for the "Data" roadmap item, even though every candidate on it
 still needs the same level of scrutiny the two reference stars already got before being taken
 seriously.
+
+## Identity-confirmed the top new candidates, 2026-10-07
+
+Quick follow-up on the four "closer and slower than either reference star" candidates listed
+above: checked each one isn't a data artifact by confirming it's a real, legitimate catalog
+entry (same kind of check this project did for HIP 3757/HD 292249/Ross 573 before trusting
+them).
+  - 39513359823463680 -- UCAC4 520-006717, 2MASS J03502880+1356125, parallax 6.71 mas
+    (~149 pc). Real, cataloged, not individually named/studied beyond that.
+  - 4899996487129314688 -- L 86-22 / NLTT 72, parallax 29.45 mas (~34 pc), has a measured RV
+    (18.14 km/s). Real, cataloged proper-motion star.
+  - 357194086205843072 -- not in SIMBAD (most faint Gaia-only stars aren't, if nothing else has
+    individually studied them), but confirmed as a genuine Gaia DR3 source via direct archive
+    query: parallax 8.01 mas (~125 pc), G=15.25 (faint, consistent with why it's SIMBAD-absent).
+  - 360189293321105024 -- TYC 3685-1833-1 / GSC 03685-01833, parallax 10.25 mas (~98 pc),
+    V=10.77 (bright enough to have its own Tycho/GSC entry).
+All four are real, legitimately-cataloged (or at least Gaia-archive-confirmed) stars, not
+artifacts of a parsing bug or a corrupted row -- a reasonable first screen before any of them
+would be worth investigating further (SIMBAD cross-ID, literature search, Monte Carlo
+resampling via mc_search_stage1()). None of that further investigation has been done yet.
