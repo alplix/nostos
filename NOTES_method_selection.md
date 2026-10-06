@@ -60,6 +60,28 @@ placeholder parameters as scientifically meaningful. The code structure
 (generic `Potential` interface) is designed so swapping this out later
 doesn't touch `integrator.h` or anything downstream at all.
 
+**Done, 2026-10-06**: the third bullet above, done properly rather than as a
+loose ballpark check. `scripts/galpy_crosscheck.py` constructs galpy's
+`HernquistPotential`/`MiyamotoNagaiPotential`/`NFWPotential` directly (not
+`MWPotential2014` as a whole -- its bulge is a power-law-with-cutoff, a
+genuinely different shape from Hernquist, so a whole-model match isn't
+apples-to-apples) with the *exact same* mass/scale parameters as
+`milkyway_potential_default`, at 5 points spanning 1-20 kpc including one
+off-plane (z=0.5 kpc, to exercise the Miyamoto-Nagai/NFW vertical structure
+an R-only check can't reach). `tests/test_milkyway_galpy.c` hardcodes those
+reference numbers and checks `potential.c`'s real C code against them,
+component by component (isolating bulge/disk/halo one at a time by zeroing
+the other two components' GM, since `potential.c` only exposes the summed
+acceleration). Every component matches to ~1.7e-6 relative error at every
+point -- consistent with a G-constant precision difference between galpy's
+internals and `NOSTOS_G`, not a formula bug.
+
+This validates that the CODE correctly implements Hernquist/Miyamoto-Nagai/
+NFW -- it does **not** validate the current placeholder amplitude/scale
+NUMBERS against the real Milky Way (that's still the first or second bullet
+above, not yet done). Don't conflate "the formulas are right" with "the
+parameters are right" -- this closes the former, not the latter.
+
 ## Backward-integration time window — OPEN
 
 Not decided yet. The literature (Bailer-Jones et al. for 'Oumuamua/Borisov)

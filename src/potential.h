@@ -44,15 +44,23 @@ Potential kepler_potential(const KeplerParams *params);
 // Milky Way mass model in the literature (incl. galpy's MWPotential2014,
 // which uses the same three ingredients with different amplitudes/scales).
 //
-// IMPORTANT: the parameter VALUES below (milkyway_potential_default) are a
-// first-pass placeholder, picked only to give a roughly plausible rotation
-// curve (~220-235 km/s near the solar radius) -- NOT yet validated against
-// a published model or against galpy. Per the project roadmap's "method
-// selection" step, this needs to be checked (and tuned, or replaced with
-// published parameters such as Allen & Santillan 1991 or galpy's
-// MWPotential2014) before any encounter result from this potential is
-// trusted scientifically. tests/test_milkyway.c prints the resulting
-// rotation curve so this can be checked/tuned empirically.
+// The parameter VALUES below (milkyway_potential_default) are still a
+// first-pass placeholder, not published parameters like Allen & Santillan
+// 1991 or galpy's actual MWPotential2014 amplitudes -- picked only to give a
+// roughly plausible rotation curve (~220-235 km/s near the solar radius).
+// Per the project roadmap's "method selection" step, swapping in a
+// published parameter set is still worth doing before trusting a real
+// encounter result scientifically.
+//
+// What IS now validated (2026-10-06, tests/test_milkyway_galpy.c): the
+// ACCELERATION FORMULAS themselves -- Hernquist, Miyamoto-Nagai, and the NFW
+// enclosed-mass law, in-plane and off-plane -- match galpy (constructed with
+// these same placeholder parameters) to ~1.7e-6 relative error, component by
+// component. So the code correctly implements the physics these three
+// standard forms describe; what's still open is only the choice of
+// amplitude/scale NUMBERS, not whether the formulas are right.
+// tests/test_milkyway.c's rotation-curve print remains useful for an
+// empirical by-eye sanity check while tuning those numbers.
 typedef struct {
     double bulge_GM;   // kpc^3/Myr^2
     double bulge_c;    // kpc, Hernquist scale radius

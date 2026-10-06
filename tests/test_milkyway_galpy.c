@@ -1,0 +1,104 @@
+// Cross-checks potential.c's Hernquist/Miyamoto-Nagai/NFW acceleration formulas against galpy
+// (the standard reference galactic-dynamics Python library), component by component, at both
+// in-plane and off-plane points. This is the real external validation flagged as a TODO in
+// potential.h's big comment -- test_milkyway.c's rotation curve print was always informational
+// only (no pass/fail), and this is the thing meant to replace that caveat.
+//
+// Method: constructed galpy's HernquistPotential/MiyamotoNagaiPotential/NFWPotential with the
+// exact same mass/scale parameters as milkyway_potential_default (see
+// scripts/galpy_crosscheck.py, which produced the reference numbers below), queried Rforce/
+// zforce at 5 points (R=1,4,8.122,8.122,20 kpc; z=0,0,0,0.5,0 kpc -- the last one specifically
+// off-plane to exercise the Miyamoto-Nagai/NFW z-dependence, which an R-only check can't), and
+// converted galpy's km/s/Myr output to this project's kpc/Myr^2 via NOSTOS_KMS_PER_KPCMYR. Every
+// single component matches to ~1.7e-6 relative error at every point -- consistent with a G-value
+// precision difference between galpy's constants and NOSTOS_G, not a formula bug.
+//
+// Isolating one component at a time (by zeroing the other two components' GM) is necessary
+// because potential.c only exposes the SUMMED acceleration -- this is the simplest way to
+// validate each term independently without changing potential.c's public interface.
+#include <stdio.h>
+#include <math.h>
+#include "../src/potential.h"
+#include "../src/units.h"
+
+static int g_failures = 0;
+
+static void check_close(double got, double ref, double tol, const char *what) {
+    double rel_err = (ref != 0.0) ? fabs(got - ref) / fabs(ref) : fabs(got);
+    int ok = rel_err < tol;
+    if (!ok) { printf("  FAIL: %s (got=%.6e ref=%.6e relerr=%.2e)\n", what, got, ref, rel_err); g_failures++; }
+    else { printf("  ok:   %s (relerr=%.2e)\n", what, rel_err); }
+}
+
+typedef struct { double R, z; } Point;
+typedef struct { double aR, az; } RefAccel;
+
+int main(void) {
+    printf("test_milkyway_galpy:\n");
+
+    Point pts[5] = {
+        {1.0, 0.0}, {4.0, 0.0}, {8.122, 0.0}, {8.122, 0.5}, {20.0, 0.0}
+    };
+
+    // galpy reference accelerations (kpc/Myr^2), from scripts/galpy_crosscheck.py's output,
+    // same milkyway_potential_default parameters.
+    RefAccel bulge_ref[5] = {
+        {-1.556575e-02, -0.0}, {-2.036443e-03, -0.0}, {-5.780080e-04, -0.0},
+        {-5.749101e-04, -3.539215e-05}, {-1.049850e-04, -0.0}
+    };
+    RefAccel disk_ref[5] = {
+        {-7.586728e-03, -0.0}, {-8.839885e-03, -0.0}, {-3.696852e-03, -0.0},
+        {-3.556307e-03, -1.365039e-03}, {-7.348982e-04, -0.0}
+    };
+    RefAccel halo_ref[5] = {
+        {-4.375198e-03, -0.0}, {-3.513757e-03, -0.0}, {-2.718763e-03, -0.0},
+        {-2.711242e-03, -1.669073e-04}, {-1.550885e-03, -0.0}
+    };
+
+    MilkyWayParams p_bulge = milkyway_potential_default;
+    p_bulge.disk_GM = 0; p_bulge.halo_GM = 0;
+    MilkyWayParams p_disk = milkyway_potential_default;
+    p_disk.bulge_GM = 0; p_disk.halo_GM = 0;
+    MilkyWayParams p_halo = milkyway_potential_default;
+    p_halo.bulge_GM = 0; p_halo.disk_GM = 0;
+
+    Potential bulge_pot = milkyway_potential(&p_bulge);
+    Potential disk_pot = milkyway_potential(&p_disk);
+    Potential halo_pot = milkyway_potential(&p_halo);
+
+    const double TOL = 1e-4; // galpy itself only agrees to ~1.7e-6 on top of float rounding;
+                              // 1e-4 leaves comfortable margin without being so loose it'd miss
+                              // a real formula bug (which would show up as O(1) wrong, not O(1e-5)).
+
+    for (int i = 0; i < 5; i++) {
+        double R = pts[i].R, z = pts[i].z;
+        Vec3 pos = {R, 0.0, z};
+        char label[64];
+
+        Vec3 a_bulge = potential_acceleration(&bulge_pot, pos);
+        snprintf(label, sizeof(label), "bulge aR at R=%.3f z=%.3f", R, z);
+        check_close(a_bulge.x, bulge_ref[i].aR, TOL, label);
+        snprintf(label, sizeof(label), "bulge az at R=%.3f z=%.3f", R, z);
+        check_close(a_bulge.z, bulge_ref[i].az, TOL, label);
+
+        Vec3 a_disk = potential_acceleration(&disk_pot, pos);
+        snprintf(label, sizeof(label), "disk  aR at R=%.3f z=%.3f", R, z);
+        check_close(a_disk.x, disk_ref[i].aR, TOL, label);
+        snprintf(label, sizeof(label), "disk  az at R=%.3f z=%.3f", R, z);
+        check_close(a_disk.z, disk_ref[i].az, TOL, label);
+
+        Vec3 a_halo = potential_acceleration(&halo_pot, pos);
+        snprintf(label, sizeof(label), "halo  aR at R=%.3f z=%.3f", R, z);
+        check_close(a_halo.x, halo_ref[i].aR, TOL, label);
+        snprintf(label, sizeof(label), "halo  az at R=%.3f z=%.3f", R, z);
+        check_close(a_halo.z, halo_ref[i].az, TOL, label);
+    }
+
+    if (g_failures) {
+        printf("\n%d check(s) FAILED\n", g_failures);
+        return 1;
+    }
+    printf("\nAll checks passed -- potential.c's Hernquist/Miyamoto-Nagai/NFW formulas are now\n"
+           "independently validated against galpy, component by component, in-plane and off-plane.\n");
+    return 0;
+}
