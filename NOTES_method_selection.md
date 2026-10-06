@@ -28,7 +28,7 @@ or `make test`).
 Leapfrog is time-symmetric, so backward integration (negative `dt`) needs no
 special-casing — same code path as forward.
 
-## Milky Way potential (NOT settled — placeholder in place)
+## Milky Way potential — RESOLVED, 2026-10-06 (Allen & Santillan 1991)
 
 `src/potential.c`'s `milkyway_potential_default` is a Hernquist bulge +
 Miyamoto-Nagai disk + NFW halo (the same three ingredients as galpy's
@@ -76,11 +76,39 @@ acceleration). Every component matches to ~1.7e-6 relative error at every
 point -- consistent with a G-constant precision difference between galpy's
 internals and `NOSTOS_G`, not a formula bug.
 
-This validates that the CODE correctly implements Hernquist/Miyamoto-Nagai/
-NFW -- it does **not** validate the current placeholder amplitude/scale
-NUMBERS against the real Milky Way (that's still the first or second bullet
-above, not yet done). Don't conflate "the formulas are right" with "the
-parameters are right" -- this closes the former, not the latter.
+This validated that the CODE correctly implemented Hernquist/Miyamoto-Nagai/
+NFW -- it did **not** validate the placeholder amplitude/scale NUMBERS
+against the real Milky Way. That second bullet is now ALSO done, properly:
+
+**Done, 2026-10-06 (second half)**: replaced `milkyway_potential_default`
+with Allen & Santillan (1991, A&SS 86, "An improved model of the galactic
+mass distribution for orbit computations")'s actual published parameters --
+the same model previously used for stellar-flyby/orbit-backtracking work
+(Garcia-Sanchez et al. 2001), confirmed against multiple independent
+secondary sources (mass unit M_gal=2.325e7 Msun; table values 606.0/3690.0/
+4615.0 M_gal and 0.3873/5.3178/0.2500/12.0 kpc; halo cutoff Lambda=100 kpc,
+gamma=2.02). This was not just a parameter swap: **A&S's bulge is Plummer-
+shaped** (Phi=-GM/sqrt(r^2+b^2)), not Hernquist -- a real structural
+difference from the earlier generic placeholder, caught by actually reading
+the model's formulas rather than assuming the shape carried over. The disk
+stayed Miyamoto-Nagai (A&S uses the same form the placeholder already had).
+The halo became a generalized truncated enclosed-mass law with no simple
+stock-galpy equivalent, so it's validated differently from bulge/disk:
+`tests/test_milkyway_allen_santillan.c` checks (a) a numerical derivative of
+the hand-derived energy() formula matches the analytic acceleration (the
+exact kind of mistake a sign error in integrating the enclosed-mass law by
+hand would produce), both well inside and well outside the cutoff, and (b)
+energy and acceleration are continuous across r=Lambda itself. Both pass to
+better than 1e-5 relative error. `tests/test_milkyway_galpy.c` was updated
+to cross-check the new bulge (now via galpy's PlummerPotential) and disk
+(new parameters) -- its old NFW-vs-halo check was removed since A&S's halo
+has no galpy equivalent to compare against.
+
+Resulting rotation curve: 202.8-232.4 km/s across 1-30 kpc (see
+`tests/test_milkyway_allen_santillan.c`'s printout) -- recognizably flatter
+and closer to the real Milky Way's ~220-235 km/s than the old placeholder's
+curve was, as expected since these are now parameters A&S themselves fit to
+reproduce that behavior, not a hand-picked guess.
 
 ## Backward-integration time window — OPEN
 
