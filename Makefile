@@ -3,11 +3,12 @@ CFLAGS = -O2 -std=c99 -Wall -Wextra -lm
 
 .PHONY: test clean
 
-test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_santillan build/test_coords build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck build/test_montecarlo build/test_mc_search build/test_pipeline_oumuamua_hip3757
+test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_santillan build/test_coords build/test_coords_astropy_crosscheck build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck build/test_montecarlo build/test_mc_search build/test_pipeline_oumuamua_hip3757
 	./build/test_kepler
 	./build/test_milkyway_galpy
 	./build/test_milkyway_allen_santillan
 	./build/test_coords
+	./build/test_coords_astropy_crosscheck
 	./build/test_encounter
 	./build/test_orbital_elements
 	./build/test_horizons_crosscheck
@@ -29,6 +30,9 @@ build/test_milkyway_allen_santillan: tests/test_milkyway_allen_santillan.c src/p
 
 build/test_coords: tests/test_coords.c src/coords.c src/coords.h src/vec3.h src/units.h | build
 	$(CC) $(CFLAGS) tests/test_coords.c src/coords.c -o build/test_coords -lm
+
+build/test_coords_astropy_crosscheck: tests/test_coords_astropy_crosscheck.c src/coords.c src/coords.h src/vec3.h src/units.h | build
+	$(CC) $(CFLAGS) tests/test_coords_astropy_crosscheck.c src/coords.c -o build/test_coords_astropy_crosscheck -lm
 
 build/test_encounter: tests/test_encounter.c src/encounter.c src/encounter.h src/potential.c src/potential.h src/integrator.h src/vec3.h src/units.h | build
 	$(CC) $(CFLAGS) tests/test_encounter.c src/encounter.c src/potential.c -o build/test_encounter -lm

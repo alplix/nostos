@@ -4,12 +4,16 @@
 //
 // The round-trip self-consistency test in tests/test_coords.c (forward transform then exact
 // inverse, recovering the original input to float precision) catches a sign error or a
-// non-orthogonal matrix, but can't catch an internally-consistent-but-wrong convention. That
-// independent check now exists: tests/test_horizons_crosscheck.c runs this module's shared
+// non-orthogonal matrix, but can't catch an internally-consistent-but-wrong convention. Two
+// independent checks now exist: tests/test_horizons_crosscheck.c runs this module's shared
 // helio_equatorial_to_galactocentric_{pos,vel}() helpers (via orbital_elements.c) against a real
-// JPL Horizons state vector for 1I/'Oumuamua and matches to ~1e-6 relative error -- see that
-// file and coords.c's own comment on A_G. The Milky Way potential in potential.c is still flagged
-// as needing its own separate cross-check (a different subsystem, not validated by this one).
+// JPL Horizons state vector for 1I/'Oumuamua (~1e-6 relative error), and
+// tests/test_coords_astropy_crosscheck.c runs astrometry_to_galactocentric() ITSELF (the
+// star-side function, not shared with orbital_elements.c) against astropy -- a real, independent,
+// widely-used implementation of the same ICRS<->Galactic transform -- for a real star (HIP 3757),
+// matching to ~1e-7 relative error. See coords.c's own comment on A_G. The Milky Way potential in
+// potential.c is a separate subsystem with its own cross-check (test_milkyway_galpy.c/
+// test_milkyway_allen_santillan.c).
 #ifndef NOSTOS_COORDS_H
 #define NOSTOS_COORDS_H
 

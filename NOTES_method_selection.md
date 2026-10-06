@@ -305,7 +305,7 @@ comparing against the real reference value, not by any internal check --
 exactly the kind of bug internal-consistency tests can't catch and the whole
 reason this cross-check was worth doing.
 
-## Pipeline validation against HIP 3757 (real result, partially matched, genuinely open)
+## Pipeline validation against HIP 3757 and HD 292249 (real results, every component now independently validated, encounter match still genuinely open)
 
 First end-to-end run of the full chain (orbital elements -> coords ->
 potential/integrator -> encounter search) against a real, independently
@@ -379,3 +379,75 @@ real Gaia catalog data is available and a few more candidate stars (not
 just HIP 3757) can be checked the same way -- a systematic pattern across
 several candidates would narrow down the hypotheses above a lot faster than
 reasoning about one star in isolation.
+
+**Update, same day**: followed through on exactly that -- tested a second,
+very different candidate (HD 292249, Gaia DR2 source_id
+3107000885484340224, their most PLAUSIBLE candidate despite not being
+closest: lowest relative speed of the four, 10.7 km/s) and independently
+validated every pipeline component that hadn't been checked against an
+external reference yet. Results:
+
+- **Same systematic pattern for HD 292249**: found t=-0.592 Myr, d=27.1 pc,
+  v=51.7 km/s vs their reported t=-3.765 Myr, d=1.60 pc, v=10.7 km/s --
+  qualitatively the same mismatch as HIP 3757 (right sign, wrong magnitude
+  by a large factor). Confirmed with the full gravity integration searched
+  out to -6 Myr (well past their reported -3.765 Myr) -- no deeper minimum
+  exists in this project's model within that window; gravity genuinely
+  isn't the differentiator.
+- **Star identity re-confirmed independently via SIMBAD** for HD 292249
+  (RA/Dec/parallax/proper motion all match the Gaia DR2 source_id this
+  project queried) -- ruling out a wrong-star/mismatched-source_id
+  explanation for a second time. (Also caught, in passing: an earlier
+  PDF-text-extraction of this star's astrometry from the paper itself gave
+  wildly different, internally-inconsistent numbers -- parallax 1.605 mas
+  vs the real 24.12 mas, proper motion 24.15 mas/yr vs the real ~71.1
+  mas/yr computed from components -- a reminder that AI-summarized PDF
+  table extraction is NOT a reliable source for numbers that matter; the
+  live Gaia TAP archive query and SIMBAD cross-check are what's actually
+  trusted here, not the paper-text extraction.)
+- **'Oumuamua's propagation re-validated at the ACTUAL epoch used** (not
+  just the +36-day epoch test_horizons_crosscheck.c already checks): fetched
+  a real JPL Horizons state vector for 2026-10-06 (~9 years post-perihelion,
+  matching what this test actually evaluates `orbital_elements.c` at) and
+  compared directly -- position and velocity both match to ~6e-4 relative
+  error (looser than the ~1e-6 at +36 days, as expected for a longer pure-
+  two-body extrapolation without non-gravitational terms, but still clearly
+  correct, not wildly off). This rules out `orbital_elements.c` itself as
+  the discrepancy's source, decisively.
+- **`astrometry_to_galactocentric()` independently validated against
+  astropy** (`tests/test_coords_astropy_crosscheck.c`,
+  `scripts/astropy_crosscheck.py`): HIP 3757's Galactic-frame position and
+  velocity match astropy's own ICRS<->Galactic transform to ~1e-7 relative
+  error. This closes the exact gap `coords.h`'s own caveat had flagged
+  (round-trip self-consistency can't catch a convention error; an
+  independent reference implementation can) -- and it passes. Rules out
+  `coords.c`'s formula/`A_G` matrix as the discrepancy's source too.
+- **Non-gravitational acceleration quantified, not just asserted
+  negligible**: JPL Horizons' own solution for 'Oumuamua confirms non-grav
+  terms are present (A1=2.79e-7, A2=1.44e-8, A3=1.57e-8 AU/day^2, active
+  "October 2017 to January 2018" per Horizons' own documentation). Back-of-
+  envelope: ~2.8e-7 AU/day^2 for the ~100 remaining days after this
+  project's reference epoch (JD 2458041.5) gives a velocity change of
+  roughly 0.05 km/s -- three orders of magnitude too small to explain a
+  15-40x distance/time gap. This hypothesis is now RULED OUT quantitatively,
+  not just "not expected to matter."
+
+**Net result**: every individual component in the chain -- 'Oumuamua's
+orbital-element propagation (JPL Horizons, two epochs), the star-side
+coordinate transform (astropy), the Milky Way potential formulas (galpy),
+the integrator (analytic Kepler/zero-gravity cases), the encounter search
+logic itself (straight-line analytic cases) -- is now independently
+validated against an external reference, for TWO different real stars, and
+each still shows the same qualitative discrepancy against Bailer-Jones'
+reported encounter numbers. This is strong evidence the gap is not a code
+bug in any of the pieces checked, but something about the overall
+comparison not yet understood -- most likely a genuine methodological
+difference (their exact reference epoch/frame for 'now', or their reported
+figure being a Monte-Carlo median materially different from a single
+best-fit trajectory, in a way not yet explained by the magnitude of
+Gaia's own measurement uncertainty). Still open. Next useful step would be
+getting the actual numbers Bailer-Jones' own code computes for these two
+stars' best-fit (non-MC) trajectories specifically, to check whether even
+THEIR best-fit single trajectory agrees with their own reported MC median
+-- if not, that would point straight at the Monte-Carlo-median explanation
+rather than anything in this project's own pipeline.
