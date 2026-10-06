@@ -126,3 +126,65 @@ external reference. **Real TODO**: cross-check a handful of known stars
 (e.g. compute Galactocentric UVW for a star with a published value in the
 literature, or diff against astropy's `ICRS` -> `Galactocentric` transform
 directly) before trusting this on real Gaia data.
+
+## Encounter-search kernel (written, validated against an exact case)
+
+`src/encounter.c`'s `find_closest_approach()` steps a star and an ISO
+realization through the same potential together (no mutual gravity between
+them) and tracks their minimum separation. Validated against an exact
+analytic case (GM=0, both bodies moving in straight lines -- the classic
+closed-form "minimize |r0 + v_rel*t|^2" answer) in `tests/test_encounter.c`,
+matching to <1e-4 relative, independent of any orbit-integration-correctness
+question. The reported minimum is over the discrete sampled points (every
+leapfrog step), not continuously refined -- fine for now, a candidate for
+later refinement (e.g. parabolic interpolation near the discovered minimum)
+if dt turns out too coarse relative to typical encounter geometries once
+real data is run through this.
+
+## Orbital-elements -> Galactocentric conversion (written, two real bugs found and fixed)
+
+`src/orbital_elements.c` turns a published heliocentric orbital-element set
+(eccentricity, perihelion distance, inclination, node, argument of
+perihelion -- the JPL Horizons/MPC form, hyperbolic only since e>1 is what
+makes something interstellar) into a Galactocentric starting state, via:
+hyperbolic Kepler equation -> true anomaly -> perifocal position/velocity ->
+3-1-3 Euler rotation into the ecliptic -> fixed obliquity rotation into
+ICRS-equatorial -> `coords.c`'s shared `helio_equatorial_to_galactocentric_*`
+helpers (refactored out of `astrometry_to_galactocentric` specifically so
+this module and coords.c can't disagree about the Sun's assumed position or
+the ICRS->Galactic rotation).
+
+**Real bug #1, found by the tests**: the hyperbolic Kepler solver's naive
+`H=M` initial guess (fine for the elliptical case in `potential.c`) overflows
+`sinh`/`cosh` for large `|M|` and returns `-nan`. Fixed with the standard
+large-`|M|` asymptotic starting guess, `H = sign(M) * ln(2|M|/e + 1.8)`.
+
+**Real finding #2, which is really a design clarification, not just a code
+bug**: hit the above overflow specifically because the first test tried
+evaluating a Borisov-like orbit several Myr from perihelion. Worked out why:
+a solar-system-scale hyperbolic flyby's own characteristic timescale
+(`1/mean_motion`) is on the order of **a year**, not a Myr -- so a multi-Myr
+mean anomaly is enormous and physically meaningless for a pure two-body
+Sun-ISO model anyway (the Sun's gravity is negligible once the object is
+that far away; something has clearly left the regime this model describes
+long before then). This fixed the project's actual intended pipeline
+shape, now documented in `orbital_elements.h`: use this module ONLY to get
+a starting state near perihelion (fractions of a year to at most a few
+years out), then hand off to the Galactic-potential integrator
+(`integrator.h`/`potential.c`) for the real Myr-scale backward integration
+-- the two-body Keplerian piece and the Galactic-potential piece are not
+meant to overlap in time at all.
+
+**Validation so far**: `tests/test_orbital_elements.c` checks (a) heliocentric
+distance at perihelion equals q exactly, (b) specific orbital energy and
+angular-momentum magnitude are conserved between perihelion and ~8
+years-before/~18 years-after (using a "null" Sun at the origin with zero
+velocity so the function's raw output is directly the heliocentric
+Keplerian state, decoupled from coords.c's Sun-offset machinery), and (c) a
+weak magnitude-preservation check after the full rotation chain. (b) is a
+real check of the time-domain (Kepler-equation/vis-viva) math; energy and
+angular-momentum magnitude are rotation-invariant though, so none of this
+actually validates the perifocal->ecliptic->equatorial rotation matrices'
+correctness, only that they're at least orthogonal. **Real TODO**, same as
+coords.c: cross-check against a real JPL Horizons state vector for
+'Oumuamua or Borisov at a known epoch before trusting the rotation chain.

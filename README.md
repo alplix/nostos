@@ -19,18 +19,19 @@ A handful of papers (most notably Bailer-Jones et al. for 'Oumuamua and Borisov)
 ## Status
 
 Gaia DR3 6D-phase-space download in progress (see `scripts/download_filter_6d.py`,
-resumable via `scripts/progress.txt`). Core orbit integrator and the
-astrometry<->Galactocentric coordinate transform are written and validated
-(see `src/` and `tests/`, and `NOTES_method_selection.md` for the choices
-made so far and what's still open). No encounter-search kernel or BOINC app
-yet.
+resumable via `scripts/progress.txt`). Core orbit integrator, the
+astrometry<->Galactocentric coordinate transform, the closest-approach
+search kernel, and the orbital-elements starting-state converter are all
+written and validated (see `src/` and `tests/`, and `NOTES_method_selection.md`
+for the choices made so far, two real bugs found and fixed along the way,
+and what's still open). No BOINC app yet.
 
 ## Roadmap
 
-- [~] **Method selection** — integrator, coordinate transform, and a first-pass Milky Way potential are in place; the backward-integration time window and Monte Carlo sampling scheme are still undecided. See `NOTES_method_selection.md`.
+- [~] **Method selection** — integrator, coordinate transform, orbital-elements conversion, and a first-pass Milky Way potential are in place; the backward-integration time window and Monte Carlo resampling scheme are still undecided. See `NOTES_method_selection.md`.
 - [ ] **Data** — pull the Gaia DR3 full-6D-phase-space subset (sources with measured radial velocity) via the Gaia archive TAP service; keep only the columns actually needed (position, parallax, proper motion, radial velocity, and their errors).
-- [~] **Core integrator** — `src/integrator.h` (leapfrog) + `src/potential.c` (point-mass + a first-pass Milky Way model) written and validated against exact conservation laws and the analytic Kepler solution (`tests/test_kepler.c`, all passing). The Milky Way potential's own parameters are a placeholder (see caveat in `src/potential.h`) and still need checking against a published model or `galpy` before being trusted for real encounter searches. `src/coords.c` (astrometry <-> Galactocentric phase space) is written and round-trip-tested (`tests/test_coords.c`, all passing) but not yet cross-checked against an external reference -- see its own caveat in `src/coords.h`.
-- [~] **Encounter search kernel** — `src/encounter.c`'s `find_closest_approach()` integrates a star and an ISO realization together and tracks their minimum separation. Validated against an exact analytic (GM=0, straight-line motion) case (`tests/test_encounter.c`, all passing). Still needed: a way to turn an ISO's published heliocentric orbital elements into a Galactocentric starting state (orbital elements aren't astrometry, so `coords.c` doesn't cover this), and the Monte Carlo resampling scheme itself (still open, see `NOTES_method_selection.md`).
+- [~] **Core integrator** — `src/integrator.h` (leapfrog) + `src/potential.c` (point-mass + a first-pass Milky Way model) written and validated against exact conservation laws and the analytic Kepler solution (`tests/test_kepler.c`, all passing). The Milky Way potential's own parameters are a placeholder (see caveat in `src/potential.h`) and still need checking against a published model or `galpy` before being trusted for real encounter searches. `src/coords.c` (astrometry <-> Galactocentric phase space) and `src/orbital_elements.c` (ISO orbital elements -> Galactocentric starting state) are written and tested (`tests/test_coords.c`, `tests/test_orbital_elements.c`, all passing) but not yet cross-checked against an external reference (e.g. astropy or a real JPL Horizons state vector) -- see their own caveats in `src/coords.h`/`src/orbital_elements.h`.
+- [x] **Encounter search kernel** — `src/encounter.c`'s `find_closest_approach()` integrates a star and an ISO realization together and tracks their minimum separation. Validated against an exact analytic (GM=0, straight-line motion) case (`tests/test_encounter.c`, all passing).
 - [ ] **Pipeline validation** — run the full thing against 'Oumuamua and Borisov and confirm it independently finds the same candidate origin stars the published literature already identified.
 - [ ] **BOINC app** — CPU first (matching this project family's usual order), work generator that chunks the Gaia catalog, assimilator that collects genuine close encounters.
 - [ ] **GPU acceleration** — the integration step parallelizes naturally across stars; port to CUDA/OpenCL/Metal once the CPU path is proven correct.

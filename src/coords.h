@@ -53,4 +53,12 @@ void astrometry_to_galactocentric(Astrometry a, const SolarParams *sun, PhaseSpa
 // this module has.
 Astrometry galactocentric_to_astrometry(PhaseSpace ps, const SolarParams *sun);
 
+// Shared building blocks for any OTHER heliocentric-equatorial-Cartesian source (e.g.
+// orbital_elements.c, which gets a solar-system body's position from its orbital elements
+// rather than from astrometry) to reach the same Galactocentric frame without duplicating the
+// rotate-then-shift logic. pos/vel are heliocentric, ICRS-axis-aligned (NOT yet rotated to
+// Galactic), in kpc / kpc-per-Myr.
+Vec3 helio_equatorial_to_galactocentric_pos(Vec3 pos_icrs_kpc, const SolarParams *sun);
+Vec3 helio_equatorial_to_galactocentric_vel(Vec3 vel_icrs_kpcmyr, const SolarParams *sun);
+
 #endif

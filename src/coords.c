@@ -81,26 +81,43 @@ void astrometry_to_galactocentric(Astrometry a, const SolarParams *sun, PhaseSpa
     Vec3 ra_hat = { -sin(ra), cos(ra), 0.0 };
     Vec3 dec_hat = { -sin(dec)*cos(ra), -sin(dec)*sin(ra), cos(dec) };
 
-    // Position: rotate the ICRS unit vector into the Galactic frame, scale by distance, shift by
-    // the Sun's assumed Galactocentric position.
-    Vec3 p_gal_unit = mat_vec(A_G, r_hat);
-    Vec3 helio_gal = v3_scale(p_gal_unit, d_kpc);
-    out->pos.x = helio_gal.x - sun->r0_kpc;
-    out->pos.y = helio_gal.y;
-    out->pos.z = helio_gal.z + sun->z0_kpc;
+    // Position: scale the ICRS-aligned unit vector by distance (still heliocentric, not yet
+    // rotated to Galactic or shifted to Galactocentric -- that part is shared with
+    // orbital_elements.c via helio_equatorial_to_galactocentric_pos()).
+    Vec3 pos_icrs_kpc = v3_scale(r_hat, d_kpc);
+    out->pos = helio_equatorial_to_galactocentric_pos(pos_icrs_kpc, sun);
 
-    // Velocity: proper motion (mas/yr) + radial velocity (km/s) -> Cartesian km/s in the
-    // ICRS-aligned basis, rotate to Galactic, add the Sun's own Galactocentric velocity.
+    // Velocity: proper motion (mas/yr) + radial velocity (km/s) -> Cartesian kpc/Myr in the
+    // ICRS-aligned basis, then the same shared rotate+shift helper as position.
     double v_ra_kms = AUYR_TO_KMS * 1e-3 * a.pmra_masyr * d_pc;
     double v_dec_kms = AUYR_TO_KMS * 1e-3 * a.pmdec_masyr * d_pc;
-    Vec3 v_icrs = v3_add(v3_add(v3_scale(r_hat, a.rv_kms), v3_scale(ra_hat, v_ra_kms)), v3_scale(dec_hat, v_dec_kms));
-    Vec3 v_gal_helio = mat_vec(A_G, v_icrs);
-    Vec3 v_sun = sun_velocity_galcen(sun);
-    Vec3 v_galcen_kms = v3_add(v_gal_helio, v_sun);
+    Vec3 v_icrs_kms = v3_add(v3_add(v3_scale(r_hat, a.rv_kms), v3_scale(ra_hat, v_ra_kms)), v3_scale(dec_hat, v_dec_kms));
+    Vec3 v_icrs_kpcmyr = {
+        nostos_kms_to_kpcmyr(v_icrs_kms.x),
+        nostos_kms_to_kpcmyr(v_icrs_kms.y),
+        nostos_kms_to_kpcmyr(v_icrs_kms.z),
+    };
+    out->vel = helio_equatorial_to_galactocentric_vel(v_icrs_kpcmyr, sun);
+}
 
-    out->vel.x = nostos_kms_to_kpcmyr(v_galcen_kms.x);
-    out->vel.y = nostos_kms_to_kpcmyr(v_galcen_kms.y);
-    out->vel.z = nostos_kms_to_kpcmyr(v_galcen_kms.z);
+Vec3 helio_equatorial_to_galactocentric_pos(Vec3 pos_icrs_kpc, const SolarParams *sun) {
+    Vec3 helio_gal = mat_vec(A_G, pos_icrs_kpc);
+    return (Vec3){
+        helio_gal.x - sun->r0_kpc,
+        helio_gal.y,
+        helio_gal.z + sun->z0_kpc,
+    };
+}
+
+Vec3 helio_equatorial_to_galactocentric_vel(Vec3 vel_icrs_kpcmyr, const SolarParams *sun) {
+    Vec3 v_gal_helio = mat_vec(A_G, vel_icrs_kpcmyr);
+    Vec3 v_sun_kms = sun_velocity_galcen(sun);
+    Vec3 v_sun_kpcmyr = {
+        nostos_kms_to_kpcmyr(v_sun_kms.x),
+        nostos_kms_to_kpcmyr(v_sun_kms.y),
+        nostos_kms_to_kpcmyr(v_sun_kms.z),
+    };
+    return v3_add(v_gal_helio, v_sun_kpcmyr);
 }
 
 Astrometry galactocentric_to_astrometry(PhaseSpace ps, const SolarParams *sun) {

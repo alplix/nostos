@@ -27,4 +27,17 @@ static inline double nostos_kpcmyr_to_kms(double v_kpcmyr) {
 #define NOSTOS_G_KPC_KMS2_PER_MSUN 4.30091e-6
 #define NOSTOS_G (NOSTOS_G_KPC_KMS2_PER_MSUN / (NOSTOS_KMS_PER_KPCMYR * NOSTOS_KMS_PER_KPCMYR))
 
+// 1 AU in kpc. Exact by definition: 1 pc = 206264.80624709636 AU (a parsec is defined as the
+// distance at which 1 AU subtends exactly 1 arcsec, and 1 radian = 206264.80624709636 arcsec).
+#define NOSTOS_AU_PER_KPC (206264.80624709636 * 1000.0)
+#define NOSTOS_KPC_PER_AU (1.0 / NOSTOS_AU_PER_KPC)
+
+// 1 day in Myr, consistent with this project's Julian-year convention (365.25 days/yr) --
+// orbital-element epochs (time of perihelion passage etc.) are conventionally given in days.
+#define NOSTOS_MYR_PER_DAY (1.0 / (365.25 * 1.0e6))
+
+// GM of the Sun in this unit system: the Sun's mass IS 1 Msun by definition, so this is just
+// NOSTOS_G itself -- no separate GM_sun constant to keep in sync.
+#define NOSTOS_GM_SUN NOSTOS_G
+
 #endif
