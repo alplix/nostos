@@ -894,3 +894,23 @@ All four are real, legitimately-cataloged (or at least Gaia-archive-confirmed) s
 artifacts of a parsing bug or a corrupted row -- a reasonable first screen before any of them
 would be worth investigating further (SIMBAD cross-ID, literature search, Monte Carlo
 resampling via mc_search_stage1()). None of that further investigation has been done yet.
+
+## A third independent paper's candidate, for context (not added as a permanent test), 2026-10-07
+
+While checking whether any of the full-catalog scan's new candidates matched previously
+published ones (none did -- see above), found a THIRD independent paper with its own
+'Oumuamua-origin candidate: Dybczynski & Krolikowska 2018 (arXiv:1711.06618), using pre-Gaia-DR2
+kinematics, propose UCAC4 535-065571 (= V* V1274 Her, M6V dwarf, Gaia DR3 4549983418742839808)
+as the most probable candidate within 60 pc: t=-2.14 Myr, d=1.43 pc, v=5.21 km/s. They
+explicitly flag this star's kinematics as poorly known at the time and say improved Gaia data
+would be needed for a firmer conclusion.
+
+Ran it through this project's now-fixed pipeline using its REAL Gaia DR3 astrometry (not
+available to that 2018 paper): found t=-1.3323 Myr, d=7.2115 pc, v=10.83 km/s. Same qualitative
+pattern as the other three reference stars (right sign, same order-of-magnitude speed, distance
+off by a larger factor) -- consistent with, not a new instance contradicting, the already-
+documented residual gap. Plausibly explained in part by this specific case by the star's own
+flagged kinematic uncertainty at publication time, on top of whatever is causing the smaller
+residual gap for the other (Gaia-DR2-based) reference stars. Not added as a permanent pipeline
+test (unlike HIP 3757/HD 292249/Ross 573) since this star's own origin paper already flags its
+input data as unreliable -- noted here for context only.
