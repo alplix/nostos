@@ -914,3 +914,118 @@ flagged kinematic uncertainty at publication time, on top of whatever is causing
 residual gap for the other (Gaia-DR2-based) reference stars. Not added as a permanent pipeline
 test (unlike HIP 3757/HD 292249/Ross 573) since this star's own origin paper already flags its
 input data as unreliable -- noted here for context only.
+
+## Stage-2 Monte Carlo of the 99-star shortlist, 2026-10-07
+
+First run of the stage-2 half of the two-stage Monte Carlo design (see "Monte Carlo sampling
+scheme" above) on the full-catalog scan's 99-star "d < 2 pc AND v < 50 km/s" shortlist.
+
+**Data extraction.** One streaming pass over the 43 GB `gaia_dr3_6d.csv`: a fixed-string grep for
+`,<source_id>,` (Git's `grep.exe -F -f`), run at Windows *Idle* priority, 5.4 min wall-clock.
+`scripts/prepare_mc_shortlist.py` then re-checks the real `source_id` column of every hit (0 false
+hits), checks for duplicate rows (none among these 99) and writes the tool input. The CSV has
+**every** column needed -- ra/dec/parallax/pmra/pmdec errors, all 10 astrometric correlation
+coefficients, `radial_velocity_error`, plus RUWE, `duplicated_source`, `non_single_star`,
+`ipd_frac_multi_peak`, `rv_chisq_pvalue` etc. -- and none of the 99 has a null correlation, so
+nothing had to be filled in. Assumptions that ARE still made: RV uncorrelated with the astrometry
+(Gaia publishes no such correlation); Gaia's reported errors taken at face value (no parallax
+zero-point offset, no faint-star RV-error inflation or RV zero-point correction -- same as the scan
+itself); 'Oumuamua's uncertainty limited to its orbit-fit covariance. Saved:
+`D:/nostos_data/shortlist99_gaia_dr3_rows.csv` (header + the 99 full rows),
+`mc_shortlist99_input_stars.txt`, `mc_shortlist99_quality_flags.tsv`.
+
+**Method.** New `tools/mc_shortlist.c` (`make tools`): for each star, (a) the nominal encounter via
+EXACTLY gaia_scan.c's `gravity_confirm()` call (same window rule, >= 100 Myr, 2000 steps/Myr, 6
+widening attempts), and (b) 1000 pairings of a resampled star (full Gaia 5x5 astrometric
+covariance + independent RV error, new `src/star_mc.c`) with a resampled 'Oumuamua (JPL SBDB 6x6
+orbit-fit covariance, now shared via `src/iso_solutions.h`), each through the same
+`gravity_confirm()`. Seeds derived from source_id, so reruns are bit-reproducible. Two processes
+at Idle priority: 41.6 min wall-clock for 99,000 trajectory pairs (~50 ms each).
+
+Checks: the nominal column reproduces `scan_oumuamua_full_fixed.txt` for all 99 stars exactly (to
+printed precision); 0 window-limited samples; 0 rejected (non-physical) draws. Percentile
+stability: re-ran the top 6 with 2000 samples -- every 5/16/50/84/95 distance percentile moved by
+<= 3.7% and f(d < 1 pc) by <= 0.015.
+
+**Real bug found and fixed along the way:** `tools/mc_vs_bestfit_ross573.c` sampled RA/Dec by
+adding Gaia's `ra_error`/`dec_error` -- which are in **mas** (and `ra_error` refers to
+alpha* = ra*cos(dec)) -- directly onto RA/Dec in **degrees**, i.e. ~100 arcsec perturbations
+instead of ~0.03 mas. Now routed through `src/star_mc.c` (pinned by `tests/test_star_mc.c`).
+Re-run: median 1.0616 pc (90% CI 1.016-1.108), t=-0.894 Myr, v=23.01 km/s -- unchanged at the
+precision previously quoted, so the "MC median vs best fit" conclusion above still stands.
+
+**Results** (`D:/nostos_data/mc_shortlist99_ranked.txt`; per-star summary
+`mc_shortlist99_summary.txt`; every sample `mc_shortlist99_samples.txt`). Ranked by robustness =
+fraction of samples within 1 pc, then within 2 pc, then median distance. d in pc (5/16/50/84/95
+percentiles); t and v are MC medians; f_cs = fraction with d < 1 pc AND v < 20 km/s:
+
+| # | Gaia DR3 | identity (SIMBAD) | nominal d | d p5/p16/p50/p84/p95 | t (Myr) | v (km/s) | f<0.5 | f<1 | f<2 | f_cs | flags |
+|---|----------|-------------------|-----------|----------------------|---------|----------|-------|-----|-----|------|-------|
+| 1 | 183958744986136832 | HD 280915 (K0) | 0.810 | 0.774/0.786/0.810/0.836/0.854 | -1.70 | 33.8 | 0 | 1.00 | 1.00 | 0 | - |
+| 2 | 162701921045496704 | HD 283493 (K2) | 0.896 | 0.793/0.830/0.902/0.984/1.040 | -3.52 | 25.7 | 0 | 0.87 | 1.00 | 0 | RVVAR |
+| 3 | 3273347343976006656 | BD+04 586 (G8, Em*) | 0.939 | 0.792/0.856/0.955/1.062/1.126 | -5.87 | 12.7 | 0 | 0.68 | 1.00 | 0.68 | - |
+| 4 | 1002539512569532160 | TYC 3779-509-1 (K0, Em*) | 0.769 | 0.246/0.435/0.837/1.369/1.762 | -8.20 | 15.1 | 0.21 | 0.63 | 0.99 | 0.63 | - |
+| 5 | 668088351942642816 | not in SIMBAD; Gaia archive OK, G=14.3 | 0.274 | 0.216/0.410/0.900/1.681/2.490 | -4.79 | 43.9 | 0.23 | 0.56 | 0.90 | 0 | RUWE 1.44, RV err 6.3 |
+| 6 | 4899996487129314688 | L 86-22 (confirmed earlier) | 0.982 | 0.835/0.892/0.984/1.095/1.169 | -5.64 | 6.1 | 0 | 0.56 | 1.00 | 0.56 | - |
+| 7 | 3674139772047065216 | not in SIMBAD; Gaia archive OK, G=13.6 | 1.081 | 0.332/0.563/1.094/1.829/2.293 | -3.53 | 43.7 | 0.13 | 0.42 | 0.90 | 0 | RUWE 3.0, IPD 80% |
+| 8 | 3392801345233555456 | HD 31829 (K0) | 1.083 | 0.304/0.602/1.271/2.285/3.031 | -5.44 | 25.4 | 0.13 | 0.39 | 0.77 | 0 | RUWE 4.2, RVVAR |
+| 9 | 4342046154817003008 | UCAC2 27313533 | 0.617 | 0.362/0.682/1.246/1.956/2.465 | -7.79 | 45.8 | 0.08 | 0.35 | 0.86 | 0 | - |
+| 10 | 2628311490260248064 | TYC 5236-535-1 | 0.654 | 0.531/0.742/1.273/2.280/3.219 | -7.97 | 42.1 | 0.04 | 0.35 | 0.77 | 0 | - |
+| 11 | 1238435196823412608 | PM J14479+2125 | 1.120 | 0.756/0.869/1.118/1.498/1.765 | -1.55 | 46.5 | 0 | 0.34 | 0.99 | 0 | RUWE 15.5, RVVAR, IPD |
+| 12 | 3435679000183848832 | HD 257514B (K1V) | 1.116 | 0.656/0.832/1.116/1.446/1.684 | -6.20 | 14.3 | 0.01 | 0.33 | 1.00 | 0.33 | B component of WDS J06284+3116 |
+
+Flag key: RUWE > 1.4 (poor single-star astrometric fit, often an unresolved binary); RVVAR
+(`rv_chisq_pvalue` < 0.01: RV epochs inconsistent with a constant velocity -- possible
+spectroscopic binary); IPD (`ipd_frac_multi_peak` > 10%: multi-peaked images -- likely a close
+double); RV err > 5 km/s.
+
+Population-level findings:
+- 6 of 99 stars keep >= 50% of their MC mass within 1 pc, 31 keep >= 10%, and 35 have NO sample
+  within 1 pc. 26 of the 99 have an MC median beyond 2 pc -- they only made the "< 2 pc" shortlist
+  through their nominal value.
+- The MC median is usually close to the nominal (median ratio 1.01) but can be far larger (up to
+  21x): a miss distance is the length of a 3D vector, so when the nominal miss is small compared
+  with its own uncertainty the resampled lengths are pushed outward. A nominal of 0.24-0.37 pc is
+  therefore NOT by itself evidence of a closer encounter. 20 of 99 nominal values fall outside
+  their own MC 16-84% band for this reason.
+- The worst cases are low-relative-speed, long-ago encounters with large Gaia RV errors -- exactly
+  where an RV error integrates into a large position error. Two of the four stars
+  "identity-confirmed" in the previous section collapse: 39513359823463680 (nominal 0.37 pc -> MC
+  median 5.95 pc, 84th percentile 29 pc, f(<1 pc)=0.04; RV err 5.9 km/s) and 357194086205843072
+  (nominal 1.04 -> median 6.97 pc, f(<1 pc)=0.01; RV err 5.4 km/s). The other two hold up: L 86-22
+  / 4899996487129314688 (rank 6, tight, v=6.1 km/s -- the slowest robust candidate) and
+  TYC 3685-1833-1 / 360189293321105024 (rank 21, median 1.17 pc, f(<2 pc)=1.00, v=9.4 km/s). The
+  nominally closest star of all, 6064513342607730304 (0.24 pc), drops to rank 23 (median 1.82 pc).
+- Reference star HIP 3757 (2525688198820543360, itself in the shortlist) is extremely tight
+  (median 1.225 pc, 90% band 1.190-1.259) and ranks only 67th because its whole distribution sits
+  just above 1 pc -- a reminder that a hard 1 pc cut interacts with the absolute-distance caveat
+  below.
+
+**Identity checks** (SIMBAD TAP + Gaia archive cone searches, a handful of light queries): all 11
+of the top 12 not confirmed before are real catalogued sources. Ten resolve in SIMBAD (names
+above). The two SIMBAD-absent ones (668088351942642816, 3674139772047065216) are confirmed in
+`gaiadr3.gaia_source`, with no Gaia neighbour within 10" that could be confused with them (only
+G=18-20, negative-parallax background sources at 5-7"). Suspicious, not disqualifying:
+3674139772047065216 (RUWE 3.0, 80% multi-peak images -- very likely an unresolved binary, so its
+astrometry/RV may not trace the system barycentre); 1238435196823412608 (RUWE 15.5 + variable RV +
+multi-peak -- most likely a binary; don't trust its distribution as is); HD 31829 (RUWE 4.2 +
+variable RV); HD 283493 (variable RV); HD 257514B (WDS double component -- the primary's own Gaia
+RV/astrometry would be a useful cross-check of the system velocity). Elsewhere in the 99:
+`duplicated_source` is set for 1047639009935893504 and 5034847538122928640, `non_single_star` for
+3338876862601643392 and 1815070015563299200 (all ranked lower).
+
+**Caveat that still applies to every number here:** the residual ~1.4-15x absolute-distance gap
+versus published encounter distances for the three reference stars (see "Found the actual bug"
+and the follow-up sections) is NOT resolved. Times and speeds match published values to a few
+percent; distances do not. So the absolute d values -- and therefore every "within 1 pc"
+fraction -- are ranking information inside this project's own model, not physical miss
+distances. A calibration-free view of robustness is the relative MC width ((p84 - p16)/p50;
+median 0.51 across the 99). Also, this MC covers measurement uncertainty only, not the Galactic-
+potential uncertainty, which Bailer-Jones et al. 2019 put at ~15 pc / 2 km/s by -10 Myr --
+larger than most of these spreads for the older (t < -5 Myr) encounters.
+
+Most sensible next steps: (1) close or at least bound the residual distance gap before quoting
+any absolute distance (e.g. get one published per-star surrogate set or best-fit trajectory to
+diff against); (2) for the flagged binaries, check whether a system-barycentre velocity is
+available (resolved companion, literature orbit) and re-run with it; (3) add potential-model
+uncertainty (vary the Allen & Santillan parameters) as a second MC axis for the top ~10.
