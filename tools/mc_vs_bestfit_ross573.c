@@ -38,6 +38,7 @@
 #include "../src/potential.h"
 #include "../src/units.h"
 #include "../src/montecarlo.h"
+#include "../src/star_mc.h"
 
 #define N_DRAWS 2000
 #define SEARCH_WINDOW_MYR 5.0
@@ -52,9 +53,9 @@ static const double STAR_MEAN[MC_MAX_DIM] = {
 }; // ra_deg, dec_deg, parallax_mas, pmra_masyr, pmdec_masyr, rv_kms
 
 // Raw Gaia-archive-queried per-parameter standard errors (ra, dec, parallax, pmra, pmdec, rv;
-// units matching STAR_MEAN's) and the 10 pairwise correlation coefficients among the first five
+// ra/dec errors in MAS of alpha*/delta as Gaia reports them, the rest in STAR_MEAN's units) and the 10 pairwise correlation coefficients among the first five
 // (rv is Gaia's own independent spectroscopic measurement, uncorrelated with the astrometric
-// solution) -- STAR_COV is built from these at startup (build_star_cov(), below) as
+// solution) -- the covariance is built from these by src/star_mc.c's gaia_build_cov6() as
 // cov[i][j] = corr[i][j] * sigma[i] * sigma[j] (diagonal: sigma[i]^2), rather than hand-computing
 // and transcribing 15 products, which is exactly the kind of arithmetic that's easy to get
 // subtly wrong without it showing up as an obvious failure.
@@ -70,22 +71,23 @@ static const double STAR_CORR[10] = {
     0.048970062, -0.107570626,
     0.15593974,
 };
-static double STAR_COV[MC_MAX_DIM][MC_MAX_DIM];
-
-static void build_star_cov(void) {
-    for (int i = 0; i < 6; i++)
-        for (int j = 0; j < 6; j++)
-            STAR_COV[i][j] = 0.0;
-    for (int i = 0; i < 6; i++) STAR_COV[i][i] = STAR_SIGMA[i] * STAR_SIGMA[i];
-    static const int ii[10] = {0,0,0,0,1,1,1,2,2,3};
-    static const int jj[10] = {1,2,3,4,2,3,4,3,4,4};
-    for (int k = 0; k < 10; k++) {
-        double c = STAR_CORR[k] * STAR_SIGMA[ii[k]] * STAR_SIGMA[jj[k]];
-        STAR_COV[ii[k]][jj[k]] = c;
-        STAR_COV[jj[k]][ii[k]] = c;
-    }
-    // index 5 (rv) stays uncorrelated with everything but itself (its row/col are left at 0
-    // except the diagonal, set above).
+// Bug found 2026-10-07 (NOTES_method_selection.md, "Stage-2 Monte Carlo of the 99-star
+// shortlist"): this tool originally built a 6x6 covariance in (ra_deg, dec_deg, ...) space from
+// the sigmas above and sampled ra/dec directly -- but Gaia's ra_error/dec_error are in MAS (and
+// ra_error is for alpha* = ra*cos(dec)), so every RA/Dec draw was perturbed by ~0.03 DEGREES
+// instead of ~0.03 mas (~100 arcsec, ~0.01 pc at Ross 573's distance). Now delegated to
+// src/star_mc.c, which keeps the covariance in Gaia's native units and converts the drawn
+// offsets to degrees correctly (tested in tests/test_star_mc.c).
+static GaiaStarUncertainty star_unc(void) {
+    GaiaStarUncertainty s = {
+        .source_id = 5162123155863791744ULL,
+        .mean = { STAR_MEAN[0], STAR_MEAN[1], STAR_MEAN[2], STAR_MEAN[3], STAR_MEAN[4], STAR_MEAN[5] },
+        .ra_error_mas = STAR_SIGMA[0], .dec_error_mas = STAR_SIGMA[1],
+        .parallax_error_mas = STAR_SIGMA[2], .pmra_error_masyr = STAR_SIGMA[3],
+        .pmdec_error_masyr = STAR_SIGMA[4], .rv_error_kms = STAR_SIGMA[5],
+    };
+    for (int k = 0; k < GAIA_N_CORR; k++) s.corr[k] = STAR_CORR[k];
+    return s;
 }
 
 // 2I/Borisov, JPL SBDB Solution 54 (same elements as tests/test_pipeline_borisov_ross573.c) plus
@@ -119,10 +121,12 @@ static double percentile(double *sorted, int n, double p) {
 }
 
 int main(void) {
-    build_star_cov();
+    GaiaStarUncertainty star = star_unc();
+    double star_cov[MC_MAX_DIM][MC_MAX_DIM];
+    gaia_build_cov6(&star, star_cov);
 
     double star_L[MC_MAX_DIM][MC_MAX_DIM], iso_L[MC_MAX_DIM][MC_MAX_DIM];
-    if (mc_cholesky(STAR_COV, 6, star_L) != 0) { fprintf(stderr, "star covariance not PD\n"); return 1; }
+    if (mc_cholesky(star_cov, 6, star_L) != 0) { fprintf(stderr, "star covariance not PD\n"); return 1; }
     if (mc_cholesky(ISO_COV, 6, iso_L) != 0) { fprintf(stderr, "ISO covariance not PD\n"); return 1; }
 
     McRng star_rng, iso_rng;
@@ -142,19 +146,16 @@ int main(void) {
     int n_valid = 0;
 
     for (int k = 0; k < N_DRAWS; k++) {
-        double star_draw[MC_MAX_DIM], iso_draw[MC_MAX_DIM];
-        mc_sample_multivariate_gaussian(&star_rng, STAR_MEAN, star_L, 6, star_draw);
+        double iso_draw[MC_MAX_DIM];
+        Astrometry star_a;
+        int star_ok = gaia_sample_astrometry(&star_rng, &star, star_L, &star_a);
         mc_sample_multivariate_gaussian(&iso_rng, ISO_MEAN, iso_L, 6, iso_draw);
 
-        if (star_draw[2] <= 0.0 || iso_draw[0] <= 1.0 || iso_draw[1] <= 0.0) continue; // reject a
+        if (!star_ok || iso_draw[0] <= 1.0 || iso_draw[1] <= 0.0) continue; // reject a
             // nonphysical draw (negative parallax or non-hyperbolic/negative-q elements) rather
             // than silently feeding it through -- rare at these tight uncertainties, but a real
             // possibility for a 3-sigma-tail draw, and not handled by either underlying function.
 
-        Astrometry star_a = {
-            .ra_deg = star_draw[0], .dec_deg = star_draw[1], .parallax_mas = star_draw[2],
-            .pmra_masyr = star_draw[3], .pmdec_masyr = star_draw[4], .rv_kms = star_draw[5],
-        };
         PhaseSpace star_ps;
         astrometry_to_galactocentric(star_a, &solar_params_default, &star_ps);
 

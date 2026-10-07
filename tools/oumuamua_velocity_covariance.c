@@ -49,6 +49,7 @@
 #include "../src/orbital_elements.h"
 #include "../src/coords.h"
 #include "../src/units.h"
+#include "../src/iso_solutions.h"
 
 // Best-fit elements at the covariance's own epoch (JD 2458080.5), read directly off the SBDB
 // response fetched 2026-10-06 -- NOT this project's other hardcoded OUMUAMUA_ELEMENTS (see the
@@ -63,18 +64,10 @@
 // settled correct starting point (tests/test_pipeline_oumuamua_hip3757.c).
 #define T_MYR_EVAL (-9.08 * 365.25 * NOSTOS_MYR_PER_DAY)
 
-// 6x6 covariance submatrix (e, q[au], tp[day], node[deg], peri[deg], i[deg]) -- exactly the
-// top-left 6x6 block of the SBDB response's 9x9 "covariance.data", in its own native element
-// units (JPL reports covariances directly in each element's native unit, not normalized).
-static const double COV6[6][6] = {
-    { 4.437021723735803e-10, 1.402645684430185e-10, -2.290597192603328e-9, -4.866487927086338e-9,  2.630680330585727e-8,  3.783694880329765e-9 },
-    { 1.402645684430185e-10, 4.44023866269166e-11,  -7.704816361638409e-10,-1.55813687037147e-9,   8.310783593401902e-9,  1.153616408668474e-9 },
-    {-2.290597192603328e-9, -7.704816361638409e-10,  6.982193721062611e-8,  5.061551619658835e-8, -1.267295484829105e-7,  3.435990038007021e-8 },
-    {-4.866487927086338e-9, -1.55813687037147e-9,    5.061551619658835e-8,  6.462880452547438e-8, -2.844751574251313e-7, -1.765593440441589e-8 },
-    { 2.630680330585727e-8,  8.310783593401902e-9,  -1.267295484829105e-7, -2.844751574251313e-7,  1.561285075915765e-6,  2.328863207568894e-7 },
-    { 3.783694880329765e-9,  1.153616408668474e-9,   3.435990038007021e-8, -1.765593440441589e-8,  2.328863207568894e-7,  8.309282984005662e-8 },
-};
-// Row/column order: e, q, tp, node, peri, i -- matches SBDB's own "labels" field.
+// 6x6 covariance submatrix (e, q[au], tp[day], node[deg], peri[deg], i[deg]) -- the real SBDB
+// orbit-fit covariance block, now kept in one shared place (src/iso_solutions.h) so this tool and
+// tools/mc_shortlist.c cannot drift apart. Row/column order: e, q, tp, node, peri, i.
+#define COV6 OUMUAMUA_SBDB_COV6
 
 static void eval_vel(double e, double q_au, double tp_day_offset, double node_deg,
                       double peri_deg, double i_deg, const SolarParams *sun, Vec3 *vel_out) {
