@@ -41,7 +41,7 @@ build/test_coords_astropy_crosscheck: tests/test_coords_astropy_crosscheck.c src
 build/test_encounter: tests/test_encounter.c src/encounter.c src/encounter.h src/potential.c src/potential.h src/integrator.h src/vec3.h src/units.h | build
 	$(CC) $(CFLAGS) tests/test_encounter.c src/encounter.c src/potential.c -o build/test_encounter -lm
 
-build/test_orbital_elements: tests/test_orbital_elements.c src/orbital_elements.c src/orbital_elements.h src/coords.c src/coords.h src/vec3.h src/units.h | build
+build/test_orbital_elements: tests/test_orbital_elements.c src/iso_solutions.h src/orbital_elements.c src/orbital_elements.h src/coords.c src/coords.h src/vec3.h src/units.h | build
 	$(CC) $(CFLAGS) tests/test_orbital_elements.c src/orbital_elements.c src/coords.c -o build/test_orbital_elements -lm
 
 build/test_horizons_crosscheck: tests/test_horizons_crosscheck.c src/orbital_elements.c src/orbital_elements.h src/coords.c src/coords.h src/vec3.h src/units.h | build
@@ -53,10 +53,10 @@ build/test_montecarlo: tests/test_montecarlo.c src/montecarlo.c src/montecarlo.h
 build/test_mc_search: tests/test_mc_search.c src/mc_search.c src/mc_search.h src/montecarlo.c src/encounter.c src/potential.c src/coords.c | build
 	$(CC) $(CFLAGS) tests/test_mc_search.c src/mc_search.c src/montecarlo.c src/encounter.c src/potential.c src/coords.c -o build/test_mc_search -lm
 
-build/test_pipeline_oumuamua_hip3757: tests/test_pipeline_oumuamua_hip3757.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c | build
+build/test_pipeline_oumuamua_hip3757: tests/test_pipeline_oumuamua_hip3757.c src/iso_solutions.h src/orbital_elements.h src/orbital_elements.c src/coords.c src/encounter.c src/potential.c | build
 	$(CC) $(CFLAGS) tests/test_pipeline_oumuamua_hip3757.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c -o build/test_pipeline_oumuamua_hip3757 -lm
 
-build/test_pipeline_borisov_ross573: tests/test_pipeline_borisov_ross573.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c | build
+build/test_pipeline_borisov_ross573: tests/test_pipeline_borisov_ross573.c src/iso_solutions.h src/orbital_elements.h src/orbital_elements.c src/coords.c src/encounter.c src/potential.c | build
 	$(CC) $(CFLAGS) tests/test_pipeline_borisov_ross573.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c -o build/test_pipeline_borisov_ross573 -lm
 
 build/test_scan_logic: tests/test_scan_logic.c src/scan_logic.c src/scan_logic.h src/encounter.c src/potential.c | build
@@ -70,13 +70,13 @@ build/test_star_mc: tests/test_star_mc.c src/star_mc.c src/star_mc.h src/monteca
 
 tools: build/gaia_scan build/oumuamua_velocity_covariance build/mc_vs_bestfit_ross573 build/mc_shortlist
 
-build/gaia_scan: src/gaia_scan.c src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c | build
+build/gaia_scan: src/gaia_scan.c src/iso_solutions.h src/orbital_elements.h src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c | build
 	$(CC) $(CFLAGS) -Isrc src/gaia_scan.c src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c -o build/gaia_scan -lm
 
 build/oumuamua_velocity_covariance: tools/oumuamua_velocity_covariance.c src/iso_solutions.h src/orbital_elements.c src/coords.c | build
 	$(CC) $(CFLAGS) tools/oumuamua_velocity_covariance.c src/orbital_elements.c src/coords.c -o build/oumuamua_velocity_covariance -lm
 
-build/mc_vs_bestfit_ross573: tools/mc_vs_bestfit_ross573.c src/star_mc.c src/star_mc.h src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c | build
+build/mc_vs_bestfit_ross573: tools/mc_vs_bestfit_ross573.c src/iso_solutions.h src/star_mc.c src/star_mc.h src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c | build
 	$(CC) $(CFLAGS) tools/mc_vs_bestfit_ross573.c src/star_mc.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c -o build/mc_vs_bestfit_ross573 -lm
 
 build/mc_shortlist: tools/mc_shortlist.c src/star_mc.c src/star_mc.h src/iso_solutions.h src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c src/scan_logic.c | build

@@ -65,6 +65,33 @@ static double solve_hyperbolic_kepler(double M, double e) {
     return H;
 }
 
+// Perifocal (x towards perihelion, z = orbit normal) -> heliocentric ICRS-equatorial-aligned axes:
+// the classic 3-1-3 Euler rotation into the J2000 ecliptic (node Omega about z, inclination i about
+// the new x, argument of perihelion omega about the original z -- applied as the single combined
+// matrix, standard form e.g. Curtis eq. 4.36), then a rotation about x by the J2000 mean obliquity.
+// Shared by orbital_elements_to_galactocentric() and orbital_elements_inbound_asymptote() so the
+// two can never disagree about orientation (the chain is cross-checked against JPL Horizons in
+// tests/test_horizons_crosscheck.c).
+static Vec3 perifocal_to_icrs(OrbitalElements el, Vec3 v) {
+    double Om = el.node_deg * DEG2RAD;
+    double inc = el.i_deg * DEG2RAD;
+    double w = el.peri_deg * DEG2RAD;
+    double cO = cos(Om), sO = sin(Om), ci = cos(inc), si = sin(inc), cw = cos(w), sw = sin(w);
+    double R[3][3] = {
+        { cO*cw - sO*sw*ci, -cO*sw - sO*cw*ci,  sO*si },
+        { sO*cw + cO*sw*ci, -sO*sw + cO*cw*ci, -cO*si },
+        { sw*si,             cw*si,             ci    },
+    };
+    Vec3 ecl = {
+        R[0][0]*v.x + R[0][1]*v.y + R[0][2]*v.z,
+        R[1][0]*v.x + R[1][1]*v.y + R[1][2]*v.z,
+        R[2][0]*v.x + R[2][1]*v.y + R[2][2]*v.z,
+    };
+    double eps = OBLIQUITY_DEG * DEG2RAD;
+    double ce = cos(eps), se = sin(eps);
+    return (Vec3){ ecl.x, ecl.y*ce - ecl.z*se, ecl.y*se + ecl.z*ce };
+}
+
 bool orbital_elements_to_galactocentric(
     OrbitalElements el, double t_myr, const SolarParams *sun, PhaseSpace *out
 ) {
@@ -92,36 +119,46 @@ bool orbital_elements_to_galactocentric(
         0.0,
     };
 
-    // Perifocal -> ecliptic: classic 3-1-3 Euler rotation (node Omega about z, inclination i
-    // about the new x, argument of perihelion omega about the original z -- applied here as the
-    // single combined matrix, standard form e.g. Curtis eq. 4.36).
-    double Om = el.node_deg * DEG2RAD;
-    double inc = el.i_deg * DEG2RAD;
-    double w = el.peri_deg * DEG2RAD;
-    double cO = cos(Om), sO = sin(Om), ci = cos(inc), si = sin(inc), cw = cos(w), sw = sin(w);
-    double R[3][3] = {
-        { cO*cw - sO*sw*ci, -cO*sw - sO*cw*ci,  sO*si },
-        { sO*cw + cO*sw*ci, -sO*sw + cO*cw*ci, -cO*si },
-        { sw*si,             cw*si,             ci    },
-    };
-    Vec3 pos_ecl = {
-        R[0][0]*pos_peri.x + R[0][1]*pos_peri.y + R[0][2]*pos_peri.z,
-        R[1][0]*pos_peri.x + R[1][1]*pos_peri.y + R[1][2]*pos_peri.z,
-        R[2][0]*pos_peri.x + R[2][1]*pos_peri.y + R[2][2]*pos_peri.z,
-    };
-    Vec3 vel_ecl = {
-        R[0][0]*vel_peri.x + R[0][1]*vel_peri.y + R[0][2]*vel_peri.z,
-        R[1][0]*vel_peri.x + R[1][1]*vel_peri.y + R[1][2]*vel_peri.z,
-        R[2][0]*vel_peri.x + R[2][1]*vel_peri.y + R[2][2]*vel_peri.z,
-    };
-
-    // Ecliptic -> ICRS-equatorial-aligned: rotation about x by the mean obliquity.
-    double eps = OBLIQUITY_DEG * DEG2RAD;
-    double ce = cos(eps), se = sin(eps);
-    Vec3 pos_icrs = { pos_ecl.x, pos_ecl.y*ce - pos_ecl.z*se, pos_ecl.y*se + pos_ecl.z*ce };
-    Vec3 vel_icrs = { vel_ecl.x, vel_ecl.y*ce - vel_ecl.z*se, vel_ecl.y*se + vel_ecl.z*ce };
+    Vec3 pos_icrs = perifocal_to_icrs(el, pos_peri);
+    Vec3 vel_icrs = perifocal_to_icrs(el, vel_peri);
 
     out->pos = helio_equatorial_to_galactocentric_pos(pos_icrs, sun);
     out->vel = helio_equatorial_to_galactocentric_vel(vel_icrs, sun);
+    return true;
+}
+
+bool orbital_elements_inbound_asymptote(
+    OrbitalElements el, double t_myr, const SolarParams *sun, PhaseSpace *out
+) {
+    return orbital_elements_inbound_asymptote_gm(el, NOSTOS_GM_SUN, t_myr, sun, out);
+}
+
+bool orbital_elements_inbound_asymptote_gm(
+    OrbitalElements el, double gm, double t_myr, const SolarParams *sun, PhaseSpace *out
+) {
+    if (el.e <= 1.0 || el.q_au <= 0.0 || gm <= 0.0) return false;
+
+    double e = el.e;
+    double q_kpc = el.q_au * NOSTOS_KPC_PER_AU;
+    double a_kpc = q_kpc / (e - 1.0);        // |a|
+    double s = sqrt(e * e - 1.0);
+    double v_inf = sqrt(gm / a_kpc); // hyperbolic excess speed (vis-viva, r -> infinity)
+
+    // Perifocal frame, focus (Sun, or the barycentre for barycentric elements) at the origin, perihelion on +x, motion counter-clockwise
+    // (+y at perihelion). The inbound branch comes in from true anomaly nu -> -nu_inf, with
+    // cos(nu_inf) = -1/e; the limiting velocity there, from the conic formula
+    // v = (GM/h) * (-sin nu, e + cos nu), is v_inf * (1/e, sqrt(e^2-1)/e) -- a unit vector, since
+    // (1 + e^2 - 1)/e^2 = 1. (The outbound asymptote is v_inf * (-1/e, sqrt(e^2-1)/e); the angle
+    // between the two is the turning angle 2*asin(1/e).)
+    Vec3 u_peri = { 1.0 / e, s / e, 0.0 };
+    // The asymptote passes through the hyperbola's centre, (|a| e, 0) from the focus. Its point of
+    // closest approach to the Sun -- the impact-parameter vector, |B| = |a| sqrt(e^2-1) = b -- is
+    // C - (C.u) u with C.u = |a|: B = |a| ((e^2-1)/e, -sqrt(e^2-1)/e).
+    Vec3 b_peri = { a_kpc * (e * e - 1.0) / e, -a_kpc * s / e, 0.0 };
+    Vec3 pos_peri = v3_add(b_peri, v3_scale(u_peri, v_inf * t_myr));
+    Vec3 vel_peri = v3_scale(u_peri, v_inf);
+
+    out->pos = helio_equatorial_to_galactocentric_pos(perifocal_to_icrs(el, pos_peri), sun);
+    out->vel = helio_equatorial_to_galactocentric_vel(perifocal_to_icrs(el, vel_peri), sun);
     return true;
 }

@@ -38,6 +38,7 @@
 #include "../src/potential.h"
 #include "../src/units.h"
 #include "../src/montecarlo.h"
+#include "../src/iso_solutions.h"
 #include "../src/star_mc.h"
 
 #define N_DRAWS 2000
@@ -95,8 +96,12 @@ static GaiaStarUncertainty star_unc(void) {
 // SBDB covariance (the other four parameters, A1/A2/A3/DT, are non-gravitational-model
 // parameters this project's two-body Keplerian model doesn't use; marginalizing them out by
 // taking the submatrix is exact, same reasoning as tools/oumuamua_velocity_covariance.c).
+// 2026-10-08: the MEAN is now JPL's barycentric 1600 element set for the same solution (src/
+// iso_solutions.h, the pipeline's starting-state convention, used with NOSTOS_GM_SSB); the SBDB
+// covariance below (osculating elements at the 2020 epoch) is applied around it as an
+// approximation -- its effect on the encounter is tiny either way (sub-m/s velocity scatter).
 static const double ISO_MEAN[MC_MAX_DIM] = {
-    3.356475782676596, 2.006520878500843, 0.0, 308.1477292269942, 209.1236864378081, 44.05264247909138,
+    3.362344839910536, 2.013421232409241, 0.0, 308.1044985515907, 209.1125494955898, 44.04464609191959,
 }; // e, q_au, tp_offset_day (0 = best fit), node_deg, peri_deg, i_deg
 static const double ISO_COV[MC_MAX_DIM][MC_MAX_DIM] = {
     { 3.624937870909242e-10, 4.794054472467175e-11, -2.464202390944168e-10, 5.196830156130616e-10, 7.456882531816074e-11, -1.620775619495585e-10 },
@@ -134,11 +139,10 @@ int main(void) {
     mc_rng_seed(&iso_rng, 2002);
 
     Potential mw = milkyway_potential(&milkyway_potential_default);
-    double t_now_myr = -3.0 * 365.25 * NOSTOS_MYR_PER_DAY; // the INBOUND asymptote, same
-                                                             // evaluation point as
-                                                             // tests/test_pipeline_borisov_ross573.c
-                                                             // (see its top comment for why
-                                                             // inbound, not outbound, matters)
+    // The EXACT inbound asymptote at the Gaia DR2 epoch, same as
+    // tests/test_pipeline_borisov_ross573.c (2026-10-08 fix: previously the Keplerian state 3.0 yr
+    // before perihelion, 3.8% too fast -- see orbital_elements.h).
+    double t_now_myr = (GAIA_DR2_EPOCH_JD - BORISOV_TP_BARY_JD) * NOSTOS_MYR_PER_DAY;
 
     double *dist = malloc(N_DRAWS * sizeof(double));
     double *time = malloc(N_DRAWS * sizeof(double));
@@ -165,7 +169,7 @@ int main(void) {
         };
         double t_myr = t_now_myr - iso_draw[2] * NOSTOS_MYR_PER_DAY;
         PhaseSpace iso_ps;
-        if (!orbital_elements_to_galactocentric(iso_el, t_myr, &solar_params_default, &iso_ps)) continue;
+        if (!orbital_elements_inbound_asymptote_gm(iso_el, NOSTOS_GM_SSB, t_myr, &solar_params_default, &iso_ps)) continue;
 
         State star_state = {star_ps.pos, star_ps.vel};
         State iso_state = {iso_ps.pos, iso_ps.vel};
@@ -190,7 +194,8 @@ int main(void) {
            percentile(speed, n_valid, 0.5), percentile(speed, n_valid, 0.05), percentile(speed, n_valid, 0.95));
 
     printf("\nfor comparison:\n");
-    printf("  this project's deterministic best fit: d=1.06 pc, t=-0.893 Myr, v=23.0 km/s\n");
+    printf("  this project's deterministic best fit: d=0.080 pc, t=-0.910 Myr, v=22.6 km/s\n"
+           "    (exact inbound asymptote; 1.06 pc / -0.893 Myr / 23.0 km/s before the 2026-10-08 fix)\n");
     printf("  Bailer-Jones et al. 2020 (MC median):  d=0.068 pc, t=-0.909 Myr, v=22.6 km/s\n");
 
     free(dist); free(time); free(speed);

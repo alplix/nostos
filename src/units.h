@@ -40,4 +40,10 @@ static inline double nostos_kpcmyr_to_kms(double v_kpcmyr) {
 // NOSTOS_G itself -- no separate GM_sun constant to keep in sync.
 #define NOSTOS_GM_SUN NOSTOS_G
 
+// Total GM of the solar system (Sun + planets + ...) relative to the Sun's: the "Keplerian GM" JPL
+// Horizons uses for orbital elements about the Solar System Barycentre (DE441), 2.9630927493968080e-4
+// au^3/d^2, divided by the Gaussian k^2 = 2.9591220828559115e-4 au^3/d^2. Needed with barycentric
+// elements (see orbital_elements_inbound_asymptote_gm()).
+#define NOSTOS_GM_SSB (NOSTOS_GM_SUN * (2.9630927493968080e-4 / 2.9591220828559115e-4))
+
 #endif

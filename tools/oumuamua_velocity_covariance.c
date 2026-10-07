@@ -62,7 +62,11 @@
 
 // Evaluation time: ~9.08 years BEFORE perihelion -- the inbound asymptote, this project's own
 // settled correct starting point (tests/test_pipeline_oumuamua_hip3757.c).
-#define T_MYR_EVAL (-9.08 * 365.25 * NOSTOS_MYR_PER_DAY)
+// 2026-10-08: now the EXACT inbound asymptotic velocity (orbital_elements_inbound_asymptote()), not
+// the Keplerian velocity at -9.08 yr, which was still 2.3% too fast (orbital_elements.h). On the
+// asymptote the velocity no longer depends on tp at all (tp only slides the position along the
+// line), so the tp row of the Jacobian is now exactly zero.
+#define T_MYR_EVAL (OUMUAMUA_T_START_DR3_DAYS * NOSTOS_MYR_PER_DAY)
 
 // 6x6 covariance submatrix (e, q[au], tp[day], node[deg], peri[deg], i[deg]) -- the real SBDB
 // orbit-fit covariance block, now kept in one shared place (src/iso_solutions.h) so this tool and
@@ -74,8 +78,8 @@ static void eval_vel(double e, double q_au, double tp_day_offset, double node_de
     OrbitalElements el = { e, q_au, i_deg, node_deg, peri_deg };
     double t_myr = T_MYR_EVAL - tp_day_offset * NOSTOS_MYR_PER_DAY;
     PhaseSpace ps;
-    if (!orbital_elements_to_galactocentric(el, t_myr, sun, &ps)) {
-        fprintf(stderr, "orbital_elements_to_galactocentric failed for a perturbed point\n");
+    if (!orbital_elements_inbound_asymptote(el, t_myr, sun, &ps)) {
+        fprintf(stderr, "orbital_elements_inbound_asymptote failed for a perturbed point\n");
         *vel_out = (Vec3){0, 0, 0};
         return;
     }
@@ -148,9 +152,42 @@ int main(void) {
     fprintf(stderr, "\nPer-axis 1-sigma velocity uncertainty: %.6f %.6f %.6f km/s\n",
             sigma_kms[0], sigma_kms[1], sigma_kms[2]);
 
-    printf("PLACEHOLDER_VEL_COV_KPCMYR2 replacement (cov00 cov01 cov02 cov11 cov12 cov22):\n");
+    printf("SBDB osculating-element covariance propagated to the asymptotic velocity, (kpc/Myr)^2 "
+           "(cov00 cov01 cov02 cov11 cov12 cov22):\n");
     printf("%.10e %.10e %.10e %.10e %.10e %.10e\n",
            covvel[0][0], covvel[0][1], covvel[0][2], covvel[1][1], covvel[1][2], covvel[2][2]);
+
+    // 2026-10-08: the covariance scripts/make_work_units.py should actually use. The SBDB block above
+    // leaves out the non-gravitational parameters (A1-A3), whose uncertainty propagates into the
+    // inbound asymptote through the whole passage; Bailer-Jones et al. 2018's Table 1 publishes
+    // the full asymptotic-velocity covariance for this solution (7c), ~40x larger. Rotate it from
+    // barycentric ICRF km/s into this project's Galactic axes: C_gal = A C_icrs A^T.
+    static const SolarParams no_sun = { 0, 0, 0, 0, 0, 0 };
+    double c_icrs[3][3];
+    {
+        const double *sg = OUMUAMUA_7C_VINF_SIGMA_KMS, *rc = OUMUAMUA_7C_VINF_CORR;
+        const double rho[3][3] = { { 1.0, rc[0], rc[1] }, { rc[0], 1.0, rc[2] }, { rc[1], rc[2], 1.0 } };
+        for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) c_icrs[a][b] = rho[a][b] * sg[a] * sg[b];
+    }
+    Vec3 col[3]; // A applied to the ICRS basis vectors = the columns of A
+    col[0] = helio_equatorial_to_galactocentric_vel((Vec3){1, 0, 0}, &no_sun);
+    col[1] = helio_equatorial_to_galactocentric_vel((Vec3){0, 1, 0}, &no_sun);
+    col[2] = helio_equatorial_to_galactocentric_vel((Vec3){0, 0, 1}, &no_sun);
+    double A[3][3];
+    for (int j = 0; j < 3; j++) { A[0][j] = col[j].x; A[1][j] = col[j].y; A[2][j] = col[j].z; }
+    double c_gal[3][3];
+    for (int a = 0; a < 3; a++) for (int b = 0; b < 3; b++) {
+        double s = 0.0;
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) s += A[a][i] * c_icrs[i][j] * A[b][j];
+        c_gal[a][b] = s / (NOSTOS_KMS_PER_KPCMYR * NOSTOS_KMS_PER_KPCMYR);
+    }
+    fprintf(stderr, "\nBailer-Jones et al. 2018 Table 1 (7c) covariance, Galactic axes, per-axis 1-sigma: "
+            "%.6f %.6f %.6f km/s\n", sqrt(c_gal[0][0]) * NOSTOS_KMS_PER_KPCMYR,
+            sqrt(c_gal[1][1]) * NOSTOS_KMS_PER_KPCMYR, sqrt(c_gal[2][2]) * NOSTOS_KMS_PER_KPCMYR);
+    printf("OUMUAMUA_VEL_COV_KPCMYR2 for scripts/make_work_units.py (Bailer-Jones 2018 Table 1, 7c; "
+           "cov00 cov01 cov02 cov11 cov12 cov22):\n");
+    printf("%.10e %.10e %.10e %.10e %.10e %.10e\n",
+           c_gal[0][0], c_gal[0][1], c_gal[0][2], c_gal[1][1], c_gal[1][2], c_gal[2][2]);
 
     return 0;
 }

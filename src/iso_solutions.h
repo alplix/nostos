@@ -1,24 +1,61 @@
 // Shared published orbit solutions for interstellar objects, so the numbers live in ONE place for
 // any tool that needs both a best-fit element set and its covariance (first user:
 // tools/mc_shortlist.c; tools/oumuamua_velocity_covariance.c takes its covariance from here too).
-// The pipeline tests and src/gaia_scan.c still carry their own literal copies of the best-fit
-// elements (identical digits) -- deliberately left alone rather than churned.
+// Some tests still carry their own literal copies of the heliocentric best-fit elements.
 #ifndef NOSTOS_ISO_SOLUTIONS_H
 #define NOSTOS_ISO_SOLUTIONS_H
 
 #include "orbital_elements.h"
 
-// 1I/'Oumuamua best-fit elements: JPL Horizons, epoch JD 2458041.5 -- the exact set src/gaia_scan.c
-// screened the whole catalog with (so a Monte Carlo run centred on it is directly comparable to
-// that scan's nominal numbers).
+// 1I/'Oumuamua heliocentric best-fit elements: JPL Horizons, epoch JD 2458041.5 -- the set the
+// catalogue scans used until 2026-10-08 (via the near-Sun Keplerian state; superseded by the
+// barycentric 1600 set below for the starting state).
 static const OrbitalElements OUMUAMUA_ELEMENTS_HORIZONS = {
     .e = 1.200954455284624, .q_au = 0.2559200355462156,
     .i_deg = 122.7402198359025, .node_deg = 24.59683473134646, .peri_deg = 241.8043518577817,
 };
 
-// Inbound-asymptote evaluation point, years before perihelion (see NOTES_method_selection.md,
-// "Found the actual bug").
-#define OUMUAMUA_T_EVAL_YEARS (-9.08)
+// THE PIPELINE'S STARTING STATE (2026-10-08, see NOTES_method_selection.md "Residual distance gap").
+// Every backward Galactic integration starts the ISO on its exact inbound asymptote,
+// orbital_elements_inbound_asymptote_gm(<*_ELEMENTS_BARY_1600>, NOSTOS_GM_SSB, t, ...), with t =
+// (star-catalogue epoch - barycentric tp), i.e. at the point of the asymptotic line at the moment
+// the star's astrometry refers to (the along-line position is a negligible detail, tens of AU).
+//
+// The element sets are BARYCENTRIC osculating elements (ecliptic J2000) at 1600-01-01 TDB from JPL
+// Horizons (centre @0, fetched 2026-10-08), i.e. AFTER JPL's own integration of the whole passage
+// backward with planets and the solution's non-gravitational model, at r ~ 2300 AU (1I) /
+// 2800 AU (2I), where the remaining solar-system deflection is < 1e-6 rad. Same solutions as
+// before: 1I = JPL#16 ("Sol. 7c, Micheli et al. 2018"), 2I = JPL#54. For 1I this reproduces
+// Bailer-Jones et al. 2018's Table 1 asymptote for solution 7c to every printed digit (radiant
+// RA 279.4987, Dec 33.8649, v_inf 26.391543 km/s; tests/test_orbital_elements.c).
+static const OrbitalElements OUMUAMUA_ELEMENTS_BARY_1600 = {
+    .e = 1.198093111333325, .q_au = 0.2526436572799559,
+    .i_deg = 122.7927648087493, .node_deg = 24.24788585536907, .peri_deg = 241.8944051367842,
+};
+static const OrbitalElements BORISOV_ELEMENTS_BARY_1600 = {
+    .e = 3.362344839910536, .q_au = 2.013421232409241,
+    .i_deg = 44.04464609191959, .node_deg = 308.1044985515907, .peri_deg = 209.1125494955898,
+};
+#define OUMUAMUA_TP_BARY_JD 2458005.600382605568
+#define BORISOV_TP_BARY_JD 2458826.211501355749
+
+// Heliocentric perihelion times of the 2017/2020-epoch heliocentric solutions (kept for tools that
+// still use those elements, e.g. as the centre of the SBDB element covariance).
+#define OUMUAMUA_TP_JD 2458006.000109129120   // JPL Horizons, epoch JD 2458041.5 solution above
+#define BORISOV_TP_JD 2458826.052845906059    // JPL SBDB solution 54 (epoch JD 2458853.5)
+#define GAIA_DR2_EPOCH_JD 2457206.375         // J2015.5
+#define GAIA_DR3_EPOCH_JD 2457389.0           // J2016.0
+// Time of the Gaia DR3 epoch relative to 'Oumuamua's (barycentric) perihelion, days (~ -616.6).
+#define OUMUAMUA_T_START_DR3_DAYS (GAIA_DR3_EPOCH_JD - OUMUAMUA_TP_BARY_JD)
+
+// 'Oumuamua's asymptotic-velocity uncertainty for solution 7c as published by Bailer-Jones et al.
+// 2018 (AJ 156, 205), Table 1: 1-sigma of the barycentric ICRF velocity components (km/s) and their
+// correlations (vx,vy), (vx,vz), (vy,vz). Unlike OUMUAMUA_SBDB_COV6 below (osculating elements
+// only), this includes the non-gravitational-parameter uncertainty propagated through the whole
+// passage, so it is ~40x larger (0.01-0.03 km/s) -- the right ISO uncertainty for the stage-2
+// Monte Carlo. Values transcribed from the paper's Table 1 via the arXiv HTML rendering.
+static const double OUMUAMUA_7C_VINF_SIGMA_KMS[3] = { 0.0101308, 0.0307732, 0.0149700 };
+static const double OUMUAMUA_7C_VINF_CORR[3] = { 0.994705, -0.989469, -0.999101 };
 
 // 6x6 marginal covariance over (e, q[au], tp[day], node[deg], peri[deg], i[deg]) -- the top-left
 // block of JPL SBDB's 9x9 orbit-fit covariance (Solution 7c / Micheli et al. 2018, quoted at epoch

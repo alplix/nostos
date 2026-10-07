@@ -32,6 +32,21 @@
 // check was originally done; by the time-symmetry of the two-body Kepler problem the inbound
 // branch converges at the same rate), and matches this orbit's analytic hyperbolic-excess speed
 // sqrt(-GM_sun/a) = 32.28 km/s (heliocentric) well within that same margin.
+//
+// CORRECTION, 2026-10-08: that convergence claim was wrong. The 0.03% figure compared
+// GALACTOCENTRIC speeds (235 km/s, dominated by the Sun's own motion), which hides the
+// heliocentric error: at 3.0 yr before perihelion (r = 22 AU) the heliocentric speed is
+// 33.50 km/s, 3.8% (1.22 km/s) above v_inf = 32.28 km/s (vis-viva v^2 = v_inf^2 + 2GM/r converges
+// only like 1/r). Over the ~0.9 Myr look-back that excess is ~1 pc of along-track error -- the
+// whole "residual ~15x distance gap" (1.06 pc vs 0.068 pc). Now started from the EXACT inbound
+// asymptote at the Gaia DR2 epoch: t=-0.910 Myr, d=0.074 pc, v=22.62 km/s from the heliocentric
+// 2020-epoch elements, and t=-0.9096, d=0.0802, v=22.63 from JPL's barycentric 1600 elements (the
+// pipeline convention, src/iso_solutions.h) -- inside the paper's own 90% intervals for all three
+// quantities. With the paper's own inputs (its Table 1 asymptote for solution 47, parallax
+// zero-point) the nominal is 0.084 pc and a 2000-surrogate MC median 0.086 [0.075,0.102] pc vs the
+// published 0.068 [0.053,0.091]: ~1 sigma high. The leftover ~0.015 pc is below the ~0.025-0.03 pc
+// by which the Galactic tide alone moves this tiny miss vector (zero potential: 0.064 pc), so it is
+// at the level of potential-model / implementation details; see NOTES_method_selection.md.
 #include <stdio.h>
 #include <math.h>
 #include "../src/coords.h"
@@ -39,6 +54,7 @@
 #include "../src/encounter.h"
 #include "../src/potential.h"
 #include "../src/units.h"
+#include "../src/iso_solutions.h"
 
 static int g_failures = 0;
 
@@ -47,22 +63,16 @@ static void check(int ok, const char *what) {
     else { printf("  ok:   %s\n", what); }
 }
 
-static OrbitalElements borisov_elements(void) {
-    return (OrbitalElements){
-        .e = 3.356475782676596,
-        .q_au = 2.006520878500843,
-        .i_deg = 44.05264247909138,
-        .node_deg = 308.1477292269942,
-        .peri_deg = 209.1236864378081,
-    };
-}
-
 int main(void) {
     printf("test_pipeline_borisov_ross573:\n");
 
-    double t_inbound_myr = -3.0 * 365.25 * NOSTOS_MYR_PER_DAY;
+    // Exact inbound asymptote of JPL's barycentric 1600 elements for the same solution (JPL#54,
+    // src/iso_solutions.h) with the total solar-system GM, placed at the Gaia DR2 epoch (J2015.5)
+    // of the star data below -- the pipeline's own starting-state convention.
+    double t_inbound_myr = (GAIA_DR2_EPOCH_JD - BORISOV_TP_BARY_JD) * NOSTOS_MYR_PER_DAY;
     PhaseSpace iso_ps;
-    bool ok = orbital_elements_to_galactocentric(borisov_elements(), t_inbound_myr, &solar_params_default, &iso_ps);
+    bool ok = orbital_elements_inbound_asymptote_gm(BORISOV_ELEMENTS_BARY_1600, NOSTOS_GM_SSB,
+                                                    t_inbound_myr, &solar_params_default, &iso_ps);
     check(ok, "2I/Borisov's orbital elements convert to a valid Galactocentric state");
 
     // Ross 573, real Gaia DR2 astrometry, source_id 5162123155863791744 (queried 2026-10-06 from
@@ -78,8 +88,8 @@ int main(void) {
     PhaseSpace star_ps;
     astrometry_to_galactocentric(ross573, &solar_params_default, &star_ps);
 
-    // NOT "today's" separation -- iso_ps is Borisov's position ~3 years BEFORE perihelion, on
-    // the inbound leg. Printed only as a sanity-check starting distance for the search below.
+    // Separation at the Gaia epoch between Ross 573 and the point on Borisov's inbound asymptote.
+    // Printed only as a sanity-check starting distance for the search below.
     double d0_pc = v3_norm(v3_sub(star_ps.pos, iso_ps.pos)) * 1000.0;
     printf("  separation at the inbound starting point: %.2f pc\n", d0_pc);
 
@@ -102,27 +112,23 @@ int main(void) {
            r.time_at_min_myr, min_d_pc, rel_speed_kms);
     printf("  Bailer-Jones et al. 2020: t=-0.909 Myr, distance=0.068 pc, rel. speed=22.6 km/s\n");
 
-    // Same convention as test_pipeline_oumuamua_hip3757.c: time and speed asserted to within a
-    // generous 25% relative tolerance (both match to within a few percent in practice -- see
-    // this file's top comment); distance remains printed, not asserted, since a smaller
-    // residual gap (~15x here) is still unexplained and separate from the inbound/outbound bug
-    // this file's history is about.
+    // Asserted against the paper's own 90% intervals (t -937..-882 kyr, d 0.053..0.091 pc,
+    // v 22.0..23.3 km/s). Before the 2026-10-08 exact-asymptote fix: d=1.06 pc, t=-0.893, v=23.01 --
+    // the distance check would fail by a factor ~12 (time and speed were already inside).
     check(r.time_at_min_myr < 0, "closest approach found in the past (not the future)");
-    check(fabs(r.time_at_min_myr - (-0.909)) / 0.909 < 0.25,
-          "closest-approach time matches Bailer-Jones et al. 2020 to within 25%");
-    check(fabs(rel_speed_kms - 22.6) / 22.6 < 0.25,
-          "relative speed matches Bailer-Jones et al. 2020 to within 25%");
-
-    printf("  NOTE: distance still doesn't closely match Bailer-Jones' reported value -- a "
-           "smaller, separate residual gap. See this file's top comment and "
-           "NOTES_method_selection.md.\n\n");
+    check(r.time_at_min_myr > -0.937 && r.time_at_min_myr < -0.882,
+          "closest-approach time inside Bailer-Jones et al. 2020's 90% interval");
+    check(rel_speed_kms > 22.0 && rel_speed_kms < 23.3,
+          "relative speed inside Bailer-Jones et al. 2020's 90% interval");
+    check(min_d_pc > 0.053 && min_d_pc < 0.091,
+          "closest-approach distance inside Bailer-Jones et al. 2020's 90% interval");
+    printf("\n");
 
     if (g_failures) {
         printf("%d check(s) FAILED\n", g_failures);
         return 1;
     }
-    printf("Validation passed (encounter found in the past, with time and speed matching "
-           "Bailer-Jones et al. 2020 to within 25%%) -- distance still has a smaller, "
-           "unresolved residual gap, printed above but not asserted.\n");
+    printf("Validation passed (time, distance and speed all inside Bailer-Jones et al. 2020's "
+           "90%% intervals).\n");
     return 0;
 }

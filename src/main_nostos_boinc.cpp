@@ -79,20 +79,17 @@ int main(int argc, char **argv) {
     }
 
     PhaseSpace iso_ps;
-    // Evaluated ~9 years BEFORE perihelion (the INBOUND asymptotic state), not after it and not
-    // at t=0 -- see NOTES_method_selection.md's "Found the actual bug" section. t=0/perihelion
-    // gives a velocity still mid-deflection by the Sun's gravity; the OUTBOUND (post-perihelion)
-    // asymptote, used here until this fix, points in the WRONG direction for this long Milky-Way-
-    // only backward integration -- it differs from the correct inbound direction by the orbit's
-    // full hyperbolic turning angle (112.7 degrees for 'Oumuamua's own orbit, not a small
-    // correction), since this integrator never re-simulates the Sun's actual deflection near
-    // perihelion at all. Using the inbound asymptote's direction from the start sidesteps that
-    // entirely. The generator that writes this work unit's input file is responsible for having
-    // given `el` consistent with that same convention; this wrapper evaluates a further FIXED
-    // negative offset from perihelion to make sure the asymptotic regime (not the still-curving
-    // near-Sun part of the orbit) is reached, same offset every time for consistency.
-    double t_eval_myr = -9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
-    if (!orbital_elements_to_galactocentric(el, t_eval_myr, &solar_params_default, &iso_ps)) {
+    // The ISO starts on its exact INBOUND asymptote (orbital_elements_inbound_asymptote_gm()). The
+    // work unit's elements must be BARYCENTRIC osculating elements taken far out on the inbound leg
+    // (JPL Horizons centre @0, e.g. epoch 1600 -- scripts/make_work_units.py writes exactly that
+    // set from src/iso_solutions.h), so the total solar-system GM is used. History
+    // (NOTES_method_selection.md): the OUTBOUND state was used until 2026-10-07 (direction off by
+    // the full turning angle); then the Keplerian state 9.08 yr before perihelion, still 2.3% too
+    // fast, until 2026-10-08 ("Residual distance gap"). The work unit carries no perihelion time,
+    // so the start is the asymptote's impact-parameter point (t=0); vs. the exact Gaia-epoch point
+    // (src/gaia_scan.c) that is a shift of a few tens of AU along the line, ~1e-4 pc.
+    double t_eval_myr = 0.0;
+    if (!orbital_elements_inbound_asymptote_gm(el, NOSTOS_GM_SSB, t_eval_myr, &solar_params_default, &iso_ps)) {
         fprintf(stderr, "invalid orbital elements (not hyperbolic, or q<=0)\n");
         free(stars);
         boinc_finish(1);

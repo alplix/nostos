@@ -44,4 +44,38 @@ bool orbital_elements_to_galactocentric(
     OrbitalElements el, double t_myr, const SolarParams *sun, PhaseSpace *out
 );
 
+// The ISO's PRE-ENCOUNTER state for a Galactic-potential-only backward integration: a point on the
+// exact INBOUND ASYMPTOTE of the hyperbola, moving with the exact inbound asymptotic velocity
+// (|v| = v_inf = sqrt(GM_sun/|a|), direction = limit nu -> -nu_inf). Position is
+// B + v_inf_vec * t_myr, where B is the impact-parameter point (the asymptote's closest point to
+// the Sun, |B| = |a| sqrt(e^2-1)) and t_myr is time relative to perihelion (pass the star data's
+// epoch minus the perihelion time; the along-track ambiguity of a straight line vs the real orbit
+// is only a logarithmic ~|a| ln(...) term, tens of AU at most).
+//
+// USE THIS, not orbital_elements_to_galactocentric() at some "large enough" pre-perihelion time,
+// to start the Myr-scale backward integration. Real bug (2026-10-08, see
+// NOTES_method_selection.md "Residual distance gap: the ISO speed was never asymptotic"): the
+// pipeline used to evaluate the Keplerian state 9.08 yr (1I) / 3.0 yr (2I) before perihelion and
+// treat it as asymptotic. The DIRECTION there is converged (~1e-4 rad, it converges like 1/r^2),
+// but the SPEED is not -- vis-viva v^2 = v_inf^2 + 2GM/r converges only like 1/r: 'Oumuamua was
+// 2.3% (0.61 km/s) and Borisov 3.8% (1.22 km/s) too fast, a ~0.6-1.1 pc along-track error per
+// Myr of look-back -- exactly the "time and speed right, distance off 1.4-15x" residual.
+// Same validity conditions as above (hyperbolic, q > 0); returns false otherwise.
+bool orbital_elements_inbound_asymptote(
+    OrbitalElements el, double t_myr, const SolarParams *sun, PhaseSpace *out
+);
+
+// Same, with an explicit central GM (internal units, kpc^3/Myr^2). The variant above uses GM_sun,
+// right for HELIOCENTRIC elements. For the pipeline, prefer BARYCENTRIC osculating elements taken
+// far out on the inbound leg (JPL Horizons, centre @0, e.g. epoch 1600 -- these already include
+// planetary and non-gravitational perturbations of the whole passage) together with the total
+// solar-system GM (NOSTOS_GM_SSB): that is exactly how Bailer-Jones et al. 2018/2020 obtain the
+// ISO's incoming velocity ("integrate back to 3000 BCE, then extrapolate to the Keplerian
+// inbound asymptote", barycentric), and it reproduces their Table 1 asymptote for 1I solution 7c
+// to every printed digit (tests/test_orbital_elements.c). Heliocentric 2017-epoch elements instead
+// point 0.077 deg (1I) / 0.021 deg (2I) away -- ~0.1 pc at HD 292249's -3.8 Myr.
+bool orbital_elements_inbound_asymptote_gm(
+    OrbitalElements el, double gm, double t_myr, const SolarParams *sun, PhaseSpace *out
+);
+
 #endif

@@ -31,6 +31,7 @@
 #include "potential.h"
 #include "units.h"
 #include "scan_logic.h"
+#include "iso_solutions.h"
 
 #define MAX_LINE 65536
 #define MAX_COLS 200
@@ -119,27 +120,19 @@ int main(int argc, char **argv) {
     fprintf(stderr, "columns found: source_id=%d ra=%d dec=%d parallax=%d pmra=%d pmdec=%d rv=%d\n",
             col.source_id, col.ra, col.dec, col.parallax, col.pmra, col.pmdec, col.rv);
 
-    // 1I/'Oumuamua, same real JPL Horizons elements as tests/test_horizons_crosscheck.c and
-    // tests/test_pipeline_oumuamua_hip3757.c, evaluated ~9 years BEFORE perihelion -- the INBOUND
-    // asymptotic state, not the outbound one. This sign was the real bug behind the "open
-    // discrepancy" documented at length in NOTES_method_selection.md: this tool only integrates
-    // the MILKY WAY potential backward from here, never re-simulating the Sun's own gravity, so
-    // the starting velocity DIRECTION must already be the one the object had before the Sun
-    // deflected it (the inbound asymptote) -- not the one it has now, after the Sun's deflection
-    // (the outbound asymptote), which differs from the inbound direction by the orbit's full
-    // hyperbolic turning angle (2*asin(1/e) -- 112.7 degrees for this orbit, not a small
-    // correction). Using the outbound state and backward-integrating through perihelion with
-    // only the Galactic potential silently carried that wrong post-deflection direction all the
-    // way back through the Galaxy, which is what produced closest-approach distances tens of pc
-    // off from Bailer-Jones et al.'s reported values despite every individual component checking
-    // out in isolation. See NOTES_method_selection.md's "Found the actual bug" section.
-    OrbitalElements oumuamua_el = {
-        .e = 1.200954455284624, .q_au = 0.2559200355462156,
-        .i_deg = 122.7402198359025, .node_deg = 24.59683473134646, .peri_deg = 241.8043518577817,
-    };
-    double t_now_myr = -9.08 * 365.25 * NOSTOS_MYR_PER_DAY;
+    // 1I/'Oumuamua's starting state: a point on its exact INBOUND asymptote at the Gaia DR3 epoch
+    // (J2016.0), from JPL's barycentric 1600 elements with the total solar-system GM (see
+    // src/iso_solutions.h and orbital_elements.h). History, all in NOTES_method_selection.md:
+    //  - 2026-10-07 "Found the actual bug": the OUTBOUND (post-perihelion) state was used, whose
+    //    direction differs by the full turning angle (112.7 deg) -- distances off 15-200x.
+    //  - 2026-10-08 "Residual distance gap": the replacement, the Keplerian state 9.08 yr BEFORE
+    //    perihelion, had the right direction but was still 2.3% (0.61 km/s) too fast (vis-viva
+    //    converges only like 1/r at ~55 AU) -- the residual ~1.4-2x distance gap; and heliocentric
+    //    2017-epoch elements point 0.077 deg away from the true barycentric asymptote.
+    double t_start_myr = OUMUAMUA_T_START_DR3_DAYS * NOSTOS_MYR_PER_DAY;
     PhaseSpace iso_ps;
-    orbital_elements_to_galactocentric(oumuamua_el, t_now_myr, &solar_params_default, &iso_ps);
+    orbital_elements_inbound_asymptote_gm(OUMUAMUA_ELEMENTS_BARY_1600, NOSTOS_GM_SSB, t_start_myr,
+                                          &solar_params_default, &iso_ps);
 
     Potential mw = milkyway_potential(&milkyway_potential_default);
 

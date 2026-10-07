@@ -7,9 +7,9 @@
 //      full-catalog scan's own numbers, a built-in consistency check.
 //   2. MONTE CARLO: n_samples independent pairings of a resampled star (full Gaia 5x5 correlated
 //      astrometric covariance + independent RV error, src/star_mc.c) with a resampled 'Oumuamua
-//      (JPL SBDB 6x6 orbit-fit covariance over e, q, tp, node, peri, i, src/iso_solutions.h --
-//      same scheme as tools/mc_vs_bestfit_ross573.c, i.e. Bailer-Jones et al.'s "surrogates"
-//      resampling BOTH bodies). Each pairing again goes through gravity_confirm(), so the
+//      (asymptotic velocity drawn from Bailer-Jones et al. 2018's Table 1 covariance for solution
+//      7c, src/iso_solutions.h; until 2026-10-08 the JPL SBDB osculating-element covariance --
+//      i.e. Bailer-Jones et al.'s "surrogates" resampling BOTH bodies). Each pairing again goes through gravity_confirm(), so the
 //      definition of "the encounter" (global minimum separation within the backward window) is
 //      identical to the nominal/scan one.
 //
@@ -124,17 +124,33 @@ int main(int argc, char **argv) {
     if (samp) fprintf(samp, "# source_id sample d_pc t_myr v_kms window_limited\n");
 
     Potential mw = milkyway_potential(&milkyway_potential_default);
-    const double t_eval_myr = OUMUAMUA_T_EVAL_YEARS * 365.25 * NOSTOS_MYR_PER_DAY;
+    // ISO start: exact inbound asymptote at the Gaia DR3 epoch from the barycentric 1600 elements,
+    // same as src/gaia_scan.c (src/iso_solutions.h). ISO uncertainty (2026-10-08): the asymptotic
+    // velocity is drawn from Bailer-Jones et al. 2018's own Table 1 covariance for solution 7c
+    // (barycentric ICRF km/s), which -- unlike the SBDB osculating-element covariance used before --
+    // includes the non-gravitational-parameter uncertainty of the whole passage (~0.01-0.03 km/s).
+    const double t_eval_myr = OUMUAMUA_T_START_DR3_DAYS * NOSTOS_MYR_PER_DAY;
     PhaseSpace iso_nom;
-    if (!orbital_elements_to_galactocentric(OUMUAMUA_ELEMENTS_HORIZONS, t_eval_myr, &solar_params_default, &iso_nom)) {
+    if (!orbital_elements_inbound_asymptote_gm(OUMUAMUA_ELEMENTS_BARY_1600, NOSTOS_GM_SSB, t_eval_myr,
+                                               &solar_params_default, &iso_nom)) {
         fprintf(stderr, "bad nominal ISO elements\n"); return 1;
     }
-    const OrbitalElements *E = &OUMUAMUA_ELEMENTS_HORIZONS;
-    const double iso_mean[MC_MAX_DIM] = { E->e, E->q_au, 0.0, E->node_deg, E->peri_deg, E->i_deg };
+    const double iso_mean[MC_MAX_DIM] = { 0.0, 0.0, 0.0 };
     double iso_cov[MC_MAX_DIM][MC_MAX_DIM] = {{0}};
-    for (int i = 0; i < 6; i++) for (int j = 0; j < 6; j++) iso_cov[i][j] = OUMUAMUA_SBDB_COV6[i][j];
+    {
+        const double *sg = OUMUAMUA_7C_VINF_SIGMA_KMS, *rc = OUMUAMUA_7C_VINF_CORR;
+        const double rho[3][3] = { { 1.0, rc[0], rc[1] }, { rc[0], 1.0, rc[2] }, { rc[1], rc[2], 1.0 } };
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) iso_cov[i][j] = rho[i][j] * sg[i] * sg[j];
+    }
     double iso_L[MC_MAX_DIM][MC_MAX_DIM];
-    if (mc_cholesky(iso_cov, 6, iso_L) != 0) { fprintf(stderr, "ISO covariance not PD\n"); return 1; }
+    if (mc_cholesky(iso_cov, 3, iso_L) != 0) {
+        // The published correlations are rounded to 6 digits and the matrix is nearly singular;
+        // a 1e-6 relative diagonal jitter restores positive-definiteness without changing sigmas
+        // meaningfully.
+        for (int i = 0; i < 3; i++) iso_cov[i][i] *= 1.0 + 1e-6;
+        if (mc_cholesky(iso_cov, 3, iso_L) != 0) { fprintf(stderr, "ISO covariance not PD\n"); return 1; }
+    }
+    static const SolarParams no_sun = { 0, 0, 0, 0, 0, 0 }; // rotation ICRS -> Galactic axes only
 
     double *d = malloc(n_samples * sizeof(double));
     double *t = malloc(n_samples * sizeof(double));
@@ -172,13 +188,12 @@ int main(int argc, char **argv) {
             Astrometry a;
             double iso_draw[MC_MAX_DIM];
             int ok_star = gaia_sample_astrometry(&star_rng, &s, L, &a);
-            mc_sample_multivariate_gaussian(&iso_rng, iso_mean, iso_L, 6, iso_draw);
-            if (!ok_star || iso_draw[0] <= 1.0 || iso_draw[1] <= 0.0) { n_rej++; continue; }
-            OrbitalElements el = { .e = iso_draw[0], .q_au = iso_draw[1], .i_deg = iso_draw[5],
-                                   .node_deg = iso_draw[3], .peri_deg = iso_draw[4] };
-            PhaseSpace iso_ps, star_ps;
-            if (!orbital_elements_to_galactocentric(el, t_eval_myr - iso_draw[2] * NOSTOS_MYR_PER_DAY,
-                                                    &solar_params_default, &iso_ps)) { n_rej++; continue; }
+            mc_sample_multivariate_gaussian(&iso_rng, iso_mean, iso_L, 3, iso_draw);
+            if (!ok_star) { n_rej++; continue; }
+            Vec3 dv_icrs = { nostos_kms_to_kpcmyr(iso_draw[0]), nostos_kms_to_kpcmyr(iso_draw[1]),
+                             nostos_kms_to_kpcmyr(iso_draw[2]) };
+            PhaseSpace iso_ps = iso_nom, star_ps;
+            iso_ps.vel = v3_add(iso_nom.vel, helio_equatorial_to_galactocentric_vel(dv_icrs, &no_sun));
             astrometry_to_galactocentric(a, &solar_params_default, &star_ps);
             Enc e = run_encounter(&mw, star_ps, iso_ps, min_window);
             if (e.at_edge) n_edge++;

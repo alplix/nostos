@@ -19,36 +19,30 @@ import csv
 import os
 import sys
 
-# 1I/'Oumuamua, same real JPL Horizons elements used throughout this project's tests (see
-# tests/test_horizons_crosscheck.c, tests/test_pipeline_oumuamua_hip3757.c).
+# 1I/'Oumuamua: JPL Horizons BARYCENTRIC osculating elements at 1600-01-01 TDB (solution JPL#16 =
+# 7c), the same set as src/iso_solutions.h's OUMUAMUA_ELEMENTS_BARY_1600. src/main_nostos_boinc.cpp
+# starts the ISO on the exact inbound asymptote of these elements with the total solar-system GM
+# (2026-10-08 fix, NOTES_method_selection.md "Residual distance gap"; the heliocentric 2017-epoch
+# set used before pointed 0.077 deg away and, evaluated 9.08 yr before perihelion, was 2.3% too fast).
 OUMUAMUA_ELEMENTS = {
-    "e": 1.200954455284624,
-    "q_au": 0.2559200355462156,
-    "i_deg": 122.7402198359025,
-    "node_deg": 24.59683473134646,
-    "peri_deg": 241.8043518577817,
+    "e": 1.198093111333325,
+    "q_au": 0.2526436572799559,
+    "i_deg": 122.7927648087493,
+    "node_deg": 24.24788585536907,
+    "peri_deg": 241.8944051367842,
 }
 
-# 'Oumuamua's REAL Galactocentric velocity-uncertainty covariance (kpc/Myr)^2, propagated from
-# JPL Small-Body Database's actual orbit-fit covariance matrix (Solution 7c / Micheli et al.
-# 2018, fetched 2026-10-06 via
-# https://ssd-api.jpl.nasa.gov/sbdb.api?sstr=1I&full-prec=true&cov=mat) through
-# orbital_elements_to_galactocentric() -- see tools/oumuamua_velocity_covariance.c for the full
-# method (linear propagation via a numerical Jacobian, verified stable under a 5x step-size
-# change) and its own comment for the honest caveat on evaluating at that solution's own epoch
-# rather than this file's OUMUAMUA_ELEMENTS' slightly different one (same underlying solution,
-# ~1-2e-4 relative difference in the elements themselves). Evaluated at the INBOUND asymptote
-# (~9.08 years BEFORE perihelion, matching main_nostos_boinc.cpp's own starting point -- see
-# NOTES_method_selection.md's "Found the actual bug" section for why inbound, not outbound,
-# matters here). Per-axis 1-sigma: ~0.00108, 0.00017, 0.00129 km/s -- 'Oumuamua's orbit is
-# exceptionally well-constrained (80 days of arcsecond-level astrometry), so sub-m/s velocity
-# uncertainty is the real, literature-consistent answer here, not a bug -- replaces the earlier
-# placeholder (1e-6 (kpc/Myr)^2 on the diagonal, about 1 km/s per axis) that this TODO used to
-# flag as unfinished.
+# 'Oumuamua's asymptotic-velocity covariance (kpc/Myr)^2 in this project's Galactic axes: Bailer-Jones
+# et al. 2018 (AJ 156, 205) Table 1, solution 7c, rotated from barycentric ICRF by
+# tools/oumuamua_velocity_covariance.c (2026-10-08). Per-axis 1-sigma ~0.020, 0.020, 0.022 km/s. This
+# replaces the JPL SBDB osculating-element covariance propagated to the velocity (~0.001 km/s), which
+# left out the non-gravitational parameters' uncertainty -- a real ~20-40x underestimate. The matrix
+# is nearly singular (published correlations ~0.99) but positive definite (smallest eigenvalue
+# 1.6e-15), so mc_search_stage1()'s Cholesky accepts it.
 OUMUAMUA_VEL_COV_KPCMYR2 = (
-    1.2096926752e-12, 1.8906766508e-13, 1.4415977481e-12,
-    3.0251163153e-14, 2.2965005835e-13,
-    1.7487728646e-12,
+    4.2671045967e-10, 4.1958328879e-10, 4.5772944273e-10,
+    4.1446922995e-10, 4.4977060095e-10,
+    4.9105925054e-10,
 )  # cov00 cov01 cov02 cov11 cov12 cov22
 
 DEFAULT_SEED_BASE = 1  # a fixed, reproducible default -- a real generator would pick this per
