@@ -94,12 +94,14 @@ def main():
     stars.sort(key=lambda s: (-s["f_d_lt_1"], -s["f_d_lt_2"], s["d_p50"]))
 
     with open(out_path, "w") as out:
-        out.write("# Stage-2 Monte Carlo of the 99-star 'Oumuamua shortlist (tools/mc_shortlist.c), ranked by\n"
+        out.write(f"# Stage-2 Monte Carlo of a {len(stars)}-star 'Oumuamua shortlist (tools/mc_shortlist.c), ranked by\n"
                   "# robustness: fraction of samples with d<1pc, then d<2pc, then median d. d in pc, t in Myr,\n"
                   "# v in km/s. 'scan' = the full-catalog gaia_scan.c nominal; 'nom' = this run's own nominal\n"
                   "# (same code path, should match). f_cs = fraction with d<1pc AND v<20km/s.\n"
-                  "# ABSOLUTE DISTANCES CARRY THE PROJECT'S KNOWN ~1.4-15x RESIDUAL GAP VS PUBLISHED VALUES --\n"
-                  "# use them for ranking, not as physical measurements. See NOTES_method_selection.md.\n")
+                  "# Measurement uncertainty only (Gaia star + 'Oumuamua asymptote); no Galactic-potential\n"
+                  "# uncertainty and no Gaia parallax zero-point correction. Since the 2026-10-08 starting-state\n"
+                  "# fix the pipeline reproduces published encounter distances to a few hundredths of a pc\n"
+                  "# (NOTES_method_selection.md, \"Residual distance gap\").\n")
         out.write("# rank source_id n_valid scan_d nom_d d_p05 d_p16 d_p50 d_p84 d_p95 "
                   "t_p16 t_p50 t_p84 v_p16 v_p50 v_p84 f_d<0.5 f_d<1 f_d<2 f_cs G ruwe rv_err flags\n")
         for i, s in enumerate(stars, 1):

@@ -743,7 +743,9 @@ diagnostic at the corrected inbound point too: median 1.06 pc (90% CI 1.01-1.11 
 identical to the new deterministic best fit -- confirming the MC-vs-best-fit hypothesis is
 STILL ruled out even with the direction bug fixed; it was never about that.
 
-Remaining open question (smaller now, genuinely different from before): why is there still a
+Remaining open question (smaller now, genuinely different from before) -- RESOLVED 2026-10-08, see
+"Residual distance gap" at the end of this file (the -9.08/-3.0 yr starting state was still 2.3%/3.8%
+too fast): why is there still a
 ~1.4-15x gap in distance specifically, with time and speed now both solid? Not yet
 investigated. Candidate hypotheses for a future session: Bailer-Jones et al.'s potential model
 details beyond "smooth axisymmetric, doesn't matter much" (they don't fully specify parameters
@@ -793,7 +795,8 @@ ignores star-ISO mutual gravity, per its own top comment). They compute this eff
 0.002 pc for Ross 573 -- far too small to explain the current ~1 pc residual gap, and they note
 it's negligible for every other encounter they report too. Not the explanation either.
 
-Stopping the residual-gap investigation here for now: potential-model choice, Monte-Carlo-vs-
+(Superseded 2026-10-08: the residual gap WAS a further bug -- see "Residual distance gap" at the end
+of this file.) Stopping the residual-gap investigation here for now: potential-model choice, Monte-Carlo-vs-
 best-fit, solar-motion parameters, integrator resolution, and star-ISO mutual gravity are all
 now ruled out as the dominant cause. The inbound/outbound fix above resolved the large (15-200x)
 part of the original discrepancy; what's left (~1.4-15x) is a smaller, genuinely open question,
@@ -1014,6 +1017,9 @@ RV/astrometry would be a useful cross-check of the system velocity). Elsewhere i
 `duplicated_source` is set for 1047639009935893504 and 5034847538122928640, `non_single_star` for
 3338876862601643392 and 1815070015563299200 (all ranked lower).
 
+(2026-10-08: this whole run is superseded -- it used the 2.3%-too-fast ISO state; see "Residual
+distance gap" and the re-run after it.)
+
 **Caveat that still applies to every number here:** the residual ~1.4-15x absolute-distance gap
 versus published encounter distances for the three reference stars (see "Found the actual bug"
 and the follow-up sections) is NOT resolved. Times and speeds match published values to a few
@@ -1029,3 +1035,206 @@ any absolute distance (e.g. get one published per-star surrogate set or best-fit
 diff against); (2) for the flagged binaries, check whether a system-barycentre velocity is
 available (resolved companion, literature orbit) and re-run with it; (3) add potential-model
 uncertainty (vary the Allen & Santillan parameters) as a second MC axis for the top ~10.
+
+## Residual distance gap: the ISO speed was never asymptotic -- FOUND AND FIXED, 2026-10-08
+
+The residual ~1.4-15x distance gap left after the inbound/outbound fix (above) was a second real
+bug in the ISO's starting state, not an astrophysical or methodological difference.
+
+**Cause.** Every pipeline call site started the backward Galactic integration from
+`orbital_elements_to_galactocentric()` evaluated 9.08 yr (1I) / 3.0 yr (2I) BEFORE perihelion and
+treated that state as "the inbound asymptote". Its DIRECTION is converged (the angle to the true
+asymptote falls like 1/r^2: 1.7e-4 rad for 1I at 55 AU, 2.2e-3 rad for 2I at 22 AU), but its
+SPEED is not: vis-viva, v^2 = v_inf^2 + 2GM/r, converges only like 1/r. 'Oumuamua started at
+27.00 km/s instead of v_inf = 26.39 (+2.3%), Borisov at 33.50 instead of 32.28 (+3.8%). An excess
+of 0.6-1.2 km/s along the ISO's own track is an along-track error of ~0.6-1.1 pc per Myr of
+look-back, which moves the miss vector by about that much -- the whole residual. It also explains
+why time and speed already looked "right to a few percent": they are first-order insensitive to an
+along-track shift, the miss distance is not. The convergence check that justified the 9.08/3.0 yr
+choice (Borisov test comment, "within 0.03% of the 10-year value") compared GALACTOCENTRIC speeds
+(~235 km/s, dominated by the Sun's own motion), which hides a 1.2 km/s heliocentric error, and it
+compared against the 10-yr value instead of the analytic v_inf. (The quoted "matches sqrt(-GM/a)
+= 32.28 km/s" was simply not true at 3.0 yr: the state there had 33.50 km/s.)
+
+**Fix.** `orbital_elements_inbound_asymptote[_gm]()` (orbital_elements.c) returns the exact limit
+nu -> -nu_inf: velocity v_inf (1/e, sqrt(e^2-1)/e) in the perifocal frame, position on the
+asymptotic line through the impact-parameter point B (|B| = |a| sqrt(e^2-1)), advanced to the
+requested time (star-catalogue epoch minus perihelion time; the along-line position is a
+negligible detail). Unit-tested (tests/test_orbital_elements.c) against the full Kepler solution
+20 kyr out (direction to 1e-10 rad, vis-viva to 1e-9, offset from the line < 1e-5 AU), the turning
+angle 2 asin(1/e) and the impact parameter; a regression check pins that the old near-Sun states
+are > 1% too fast.
+
+**Second, smaller correction found on the way: barycentric vs heliocentric elements.** Bailer-Jones
+et al. (2018, 2020) integrate the ISO back through the full solar system (planets, non-gravitational
+forces) to 3000 BCE, then take the Keplerian inbound asymptote relative to the BARYCENTRE, and place
+the ISO at the barycentre at t = 0 = J2015.5. The heliocentric 2017/2020-epoch osculating elements
+this project used ignore the planets/non-grav forces before the epoch and the Sun-barycentre
+distinction: their asymptote points 0.077 deg (1I) / 0.021 deg (2I) away. JPL Horizons itself
+provides the fix: barycentric osculating elements (centre @0) at 1600-01-01, i.e. after JPL's own
+integration of the passage, with Horizons' barycentric "Keplerian GM" (total solar-system mass,
+`NOSTOS_GM_SSB`; elements stable to 1e-11 between consecutive days there, so converged). For 1I
+(JPL#16 = solution 7c) this reproduces the paper's Table 1 asymptote for 7c to every printed digit
+(radiant RA 279.4987, Dec 33.8649 deg, v_inf 26.391543 km/s; ours 26.391521 -- the 2e-5 km/s is the
+precision of NOSTOS_G) -- now a test. These element sets live in `src/iso_solutions.h` and every
+call site uses them (`gaia_scan.c`, the BOINC app + `make_work_units.py`, `mc_shortlist.c`,
+`mc_vs_bestfit_ross573.c`, both pipeline tests). The BOINC app was only syntax-checked against the
+BOINC headers here, not rebuilt/linked.
+
+**ISO uncertainty corrected too.** The SBDB covariance used so far covers the osculating elements
+only; the non-gravitational parameters (A1-A3) were dropped, but their uncertainty propagates into
+the inbound asymptote through the whole passage. The paper's Table 1 gives the full asymptotic-
+velocity covariance for 7c: 1-sigma 0.010/0.031/0.015 km/s (ICRF), ~20x the SBDB-only ~0.001 km/s.
+`mc_shortlist.c` now draws the ISO velocity from it, and `make_work_units.py` uses it (rotated to
+Galactic axes by `tools/oumuamua_velocity_covariance.c`; nearly singular, smallest eigenvalue
+1.6e-15 (kpc/Myr)^2, but positive definite). For 2I only the SBDB element covariance is used
+(negligible either way at Ross 573's 0.9 Myr).
+
+**What the papers report** (re-read 2026-10-08 from the arXiv text/tables, via a summarising fetch
+whose Table 1/2 numbers agreed across two renderings): t_enc, d_enc, v_enc are the time (relative
+to J2015.5), the star-ISO SEPARATION and relative speed at closest approach; values are MEDIANS of
+2000 surrogates resampling the star's 6D Gaussian (Gaia DR2 astrometry with the Lindegren et al.
+2018 parallax zero-point, -0.029 mas, removed, i.e. +0.029 added; Gaia DR2 RVs) and the ISO's
+asymptotic velocity; intervals are 5%/95%. 'Oumuamua encounters are tabulated for solution
+"2 k=2" (not 7c); 2I results for JPL solution 47 (not #54). Potential: Bailer-Jones 2015's
+Dauphole & Colin (1995) model (Miyamoto-Nagai disk 7.91e10 Msun, a=3.5, b=0.25 kpc; Plummer bulge
+1.40e10, b=0.35; Plummer halo 6.98e11, b=24 kpc; from the arXiv:1412.3648 TeX source), R0 = 8 kpc,
+z0 = +10 pc, V_sun = 242 km/s.
+
+**Results** (d in pc, t in Myr, v in km/s; "pipeline" = raw DR2, barycentric 7c / JPL#54 asymptote,
+Allen & Santillan; "paper inputs" = the paper's own Table 1 asymptote (2 k=2 for 1I, 47 for 2I)
+at the barycentre at J2015.5, DR2 parallax + 0.029 mas, and for the MC the paper's ISO covariance
+plus the full DR2 star covariance, 2000 surrogates -- a scratch diagnostic, not a repo tool):
+
+| star | quantity | before (near-Sun state) | pipeline now | paper inputs, nominal | paper inputs, MC, A&S | paper inputs, MC, BJ2015 potential | published |
+|---|---|---|---|---|---|---|---|
+| HIP 3757 | d | 1.169 | 0.556 | 0.602 | 0.602 [0.532, 0.670] | 0.605 [0.535, 0.673] | 0.599 [0.527, 0.669] |
+| | t | -0.9855 | -0.9860 | -0.9857 | -0.986 [-1.010, -0.963] | -0.987 [-1.010, -0.964] | -0.986 [-1.010, -0.964] |
+| | v | 24.69 | 24.69 | 24.68 | 24.67 [24.09, 25.23] | 24.66 [24.08, 25.22] | 24.7 [24.1, 25.2] |
+| HD 292249 | d | 2.307 | 1.673 | 1.643 | 1.646 [1.429, 1.917] | 1.631 [1.414, 1.897] | 1.605 [1.377, 1.868] |
+| | t | -3.949 | -3.768 | -3.773 | -3.767 [-4.380, -3.275] | -3.768 [-4.382, -3.276] | -3.765 [-4.361, -3.300] |
+| | v | 10.24 | 10.74 | 10.71 | 10.73 [9.22, 12.35] | 10.73 [9.22, 12.35] | 10.7 [9.3, 12.2] |
+| Ross 573 | d | 1.062 | 0.080 | 0.084 | 0.086 [0.075, 0.102] | 0.083 [0.072, 0.099] | 0.068 [0.053, 0.091] |
+| | t | -0.893 | -0.910 | -0.909 | -0.911 [-0.936, -0.883] | -0.911 [-0.936, -0.883] | -0.909 [-0.937, -0.882] |
+| | v | 23.01 | 22.63 | 22.63 | 22.59 [21.97, 23.30] | 22.58 [21.96, 23.29] | 22.6 [22.0, 23.3] |
+
+The pipeline's own two-sided MC for Ross 573 (`tools/mc_vs_bestfit_ross573.c`, now on the
+barycentric asymptote): 0.0829 [0.0717, 0.0948] pc, t = -0.910, v = 22.62.
+Intermediate step for the record: with the exact asymptote but still the HELIOCENTRIC 2017/2020
+elements the pipeline gave 0.563 / 1.788 / 0.074 pc.
+
+Reading the table:
+- **HIP 3757** is reproduced essentially exactly with the paper's inputs (median 0.602 vs 0.599,
+  interval identical to 0.005 pc). The pipeline's own number (0.556) differs only through inputs:
+  solution 7c vs 2 k=2 (+0.028 pc) and the DR2 parallax zero-point (+0.018 pc).
+- **HD 292249**: 1.646 vs 1.605 (+2.5%) with paper inputs, 1.631 (+1.6%) with their potential --
+  well inside their interval; the remainder is at the level of potential/implementation details
+  over a 3.8-Myr look-back.
+- **Ross 573**: 0.083-0.086 vs 0.068 with paper inputs (~1 sigma high; inside their 90% interval).
+  The tiny miss distance makes this the most sensitive case. Miss-vector diagnostic: in ZERO
+  potential the nominal is 0.0637 pc, and the Galactic tide alone moves the miss vector by
+  0.025 pc (BJ2015 potential) / 0.029 pc (A&S), largely along it. The paper says zero potential
+  changes their t, d, v by -0.9 kyr, -0.0036 pc, -0.03 km/s; ours (with their potential) by
+  -1.1 kyr, -0.018 pc, -0.04 km/s -- t and v agree, d does not. Since the change in |miss| is the
+  projection of the tidal shift onto the miss DIRECTION, this points to a ~0.01-0.02 pc difference
+  in the miss-vector direction between the two codes -- not resolvable here without their code or
+  a published surrogate set. Their HARPS-RV check matches ours (they: d -0.0039 pc, t +41 kyr; we:
+  -0.0047 pc, +40.3 kyr), so the RV/time geometry is the same.
+- Re-checked with the fix in place, still not contributors: solar-motion parameters (BJ values
+  change d by <= 0.004 pc), a 30% heavier potential (<= 0.007 pc), MC median vs nominal
+  (<= 0.003 pc).
+
+**Net:** the gap is closed. Absolute encounter distances from this pipeline are now trustworthy
+to the level that different published inputs (orbit solution, parallax zero-point) and Galactic-
+potential models allow: a few hundredths of a pc at ~1 Myr, ~0.05 pc at ~4 Myr, growing with
+look-back time, and relatively largest when the miss distance is comparable to the tidal shift
+(Ross 573). Remaining known systematics (not bugs): no Gaia parallax zero-point correction in the
+DR3 scan (DR3's is ~ -0.02 to -0.04 mas and magnitude/colour dependent; ~0.02 pc for a
+HIP 3757-like geometry); one 'Oumuamua solution (7c) used where the paper's six solutions spread by
+~0.03 pc for HIP 3757; Galactic-potential uncertainty.
+
+**Consequence:** every scan/shortlist/MC result produced before this fix (including
+`scan_oumuamua_full_fixed*.txt` and `mc_shortlist99_*`) used an ISO 2.3% too fast and is stale for
+absolute distances (rankings shift too, since the error grows with |t|). Re-run below.
+
+## Full-catalog rescan and stage-2 Monte Carlo with the fixed starting state, 2026-10-08
+
+**Rescan.** `gaia_scan.c` (barycentric 7c asymptote at J2016.0, everything else unchanged) over the
+whole 43 GB DR3 file at Windows Idle priority, one process: 101,829 raw / 101,585 deduplicated
+candidates under the 50 pc straight-line screen, 0 WINDOW_LIMITED, ~1 h 50 min wall-clock (the PC was
+also running BOINC at normal priority). Output `D:/nostos_data/scan_oumuamua_full_asym.txt`
+(+ `_progress.log`); the d < 2 pc AND v < 50 km/s shortlist (deduplicated, same cut as before) is
+`scan_oumuamua_full_asym_most_promising.txt`: **108 stars, of which only 44 were in the old 99**
+(55 of the old 99 dropped out, 64 are new). The reference stars in DR3: HIP 3757 d = 0.605 pc,
+t = -0.997 Myr, v = 24.42 km/s (was 1.225 pc; Bailer-Jones et al. 2018 with DR2: 0.599);
+HD 292249 d = 1.703 pc, t = -3.689, v = 10.94 (was 2.418; published 1.605).
+
+**Stage-2 MC.** `tools/mc_shortlist.c` (1000 pairings per star; ISO velocity now from the 7c
+Table-1 covariance) on the UNION of the new 108 and the old 99 = 163 stars, so the old ranking can
+be followed star by star. The 64 missing DR3 rows came from one more fixed-string grep pass over the
+catalog at Idle priority; `prepare_mc_shortlist.py`: 163 stars, 0 duplicates, 0 null correlations.
+Two processes at Idle priority, ~85 min. Checks: nominal column equals the rescan for all 163
+(max relative difference 0), 0 window-limited, 0 rejected samples. Files:
+`mc_shortlist163_input_stars.txt`, `_quality_flags.tsv`, `_summary.txt`, `_samples.txt`,
+`_ranked.txt` (ranked by the same robustness rule: f(d<1 pc), then f(d<2 pc), then median).
+The scratch-only ID-list/shortlist builder used here is not in the repo; the cut is the same one
+described in the "First full-catalog scan" section (with the "99"/"108" header line excluded --
+a parsing trap: that header's first token is numeric).
+
+**What changed.** The old ISO was 2.3% too fast, so every nominal miss vector was displaced by
+~0.6 pc per Myr of look-back; old encounters (|t| > 5 Myr) moved by several pc.
+- Old 99 under the fixed state: nominal distance ratio new/old median 1.67 (range 0.10-25);
+  f(d<1 pc) >= 0.5 for 7 of them (6 before), >= 0.1 for 15 (31), = 0 for 61 (35), MC median
+  beyond 2 pc for 60 (26).
+- **The old top 12 mostly collapse.** Old #1 HD 280915 (183958744986136832): 0.81 -> 1.50 pc
+  (f<1pc 1.00 -> 0). Old #2 HD 283493: 0.90 -> 1.79. Old #3 BD+04 586: 0.96 -> 3.23. Old #4
+  TYC 3779-509-1: 0.84 -> 5.84. Old #6 **L 86-22** (4899996487129314688, the "slowest robust
+  candidate"): 0.98 -> 3.89 pc. **TYC 3685-1833-1** (360189293321105024, old rank 21): 1.17 ->
+  6.74 pc. Only old #8 HD 31829 (now median 1.78, f<1pc 0.24) and old #11 PM J14479+2125
+  (1238435196823412608, now 0.92 pc, f<1pc 0.68, but RUWE 15.5 + variable RV + multi-peak: very
+  likely a binary) stay near the top.
+- New 108: 10 stars keep >= 50% of samples within 1 pc, 42 keep >= 10%, 31 have none, 26 have an
+  MC median beyond 2 pc; median relative MC width (p84-p16)/p50 = 0.46.
+
+New top of the ranking (d in pc as p5/p16/p50/p84/p95; t, v = MC medians; identities from a
+SIMBAD TAP cross-ID lookup, 2026-10-08; "-" = not in SIMBAD, a real DR3 catalogue row):
+
+| # | Gaia DR3 | SIMBAD | d percentiles | t (Myr) | v (km/s) | f<0.5 | f<1 | f<2 | f_cs | flags |
+|---|----------|--------|---------------|---------|----------|-------|-----|-----|------|-------|
+| 1 | 2618904962125653888 | - | 0.343/0.374/0.440/0.551/0.636 | -3.04 | 30.9 | 0.73 | 1.00 | 1.00 | 0 | - |
+| 2 | 5978956391498021376 | - | 0.422/0.459/0.515/0.593/0.646 | -2.39 | 42.3 | 0.40 | 1.00 | 1.00 | 0 | RV err 3.5 |
+| 3 | 4399766976222478336 | UCAC2 30550550 (PM*) | 0.469/0.518/0.586/0.660/0.709 | -1.78 | 46.9 | 0.12 | 1.00 | 1.00 | 0 | - |
+| 4 | 2525688198820543360 | **HIP 3757** (reference star) | 0.547/0.570/0.605/0.642/0.666 | -1.00 | 24.4 | 0 | 1.00 | 1.00 | 0 | RUWE 1.40 |
+| 5 | 2764431961787219328 | UCAC4 511-143681 | 0.094/0.159/0.327/0.629/0.813 | -4.03 | 39.8 | 0.73 | 0.98 | 1.00 | 0 | - |
+| 6 | 6805944372838431104 | 2MASS J20535781-2419459 (M4.5) | 0.493/0.565/0.683/0.846/0.957 | -1.92 | 25.4 | 0.05 | 0.96 | 1.00 | 0.21 | RV err 7.3 |
+| 7 | 3230794079316611840 | - | 0.214/0.380/0.646/0.907/1.102 | -5.82 | 21.0 | 0.29 | 0.90 | 1.00 | 0.22 | - |
+| 8 | 1238435196823412608 | PM J14479+2125 | 0.713/0.791/0.915/1.149/1.389 | -1.56 | 46.2 | 0 | 0.68 | 1.00 | 0 | RUWE 15.5, RVVAR, IPD |
+| 9 | 188859096515311744 | - | 0.276/0.441/0.848/1.518/2.138 | -7.32 | 18.5 | 0.21 | 0.59 | 0.94 | 0.35 | RV err 4.1 |
+| 10 | 4319754583064325248 | HD 182808B | 0.890/0.931/0.997/1.064/1.105 | -3.69 | 26.1 | 0 | 0.52 | 1.00 | 0 | RVVAR, B component |
+| 11 | 2223727361980747648 | 2MASS J21324618+6825359 (PM*) | 0.819/0.891/1.015/1.171/1.274 | -1.43 | 46.4 | 0 | 0.46 | 1.00 | 0 | RV err 5.7 |
+| 12 | 1902285270742120192 | - | 0.283/0.544/1.128/2.051/2.813 | -10.98 | 32.9 | 0.13 | 0.43 | 0.83 | 0 | - |
+
+Observations:
+- HIP 3757 -- independently found by Bailer-Jones et al. 2018 as 'Oumuamua's closest known
+  encounter -- now comes out of this project's own exhaustive DR3 scan at rank 4 with a
+  0.57-0.64 pc 68% band, consistent with the published DR2 value: a direct end-to-end consistency
+  check of the whole scan + MC chain that the old (too-fast) state failed (it put HIP 3757 at
+  1.225 pc, rank 67).
+- None of the new top 12 combines "close" with "slow" the way the old L 86-22 seemed to: the
+  sub-20 km/s robust candidates are #7 3230794079316611840 (21 km/s, f<1pc 0.90) and #9
+  188859096515311744 (18.5 km/s, f<1pc 0.59). HD 292249 (Bailer-Jones' "most plausible",
+  10.9 km/s) is in the new shortlist but at rank 104 here (1.70 pc in DR3, f<1pc 0).
+- The top three new stars are not in SIMBAD-flagged trouble (RUWE 1.05-1.19, small RV errors for
+  #1 and #3) but none has been looked at individually yet (literature, binarity, companion RVs).
+
+Caveats unchanged in kind but smaller: measurement uncertainty only (no Galactic-potential axis,
+~0.02-0.05 pc for few-Myr encounters per the reference-star comparison, more for older ones); no
+DR3 parallax zero-point correction; one 'Oumuamua orbit solution (7c). The old
+`mc_shortlist99_*` and `scan_oumuamua_full_fixed*` files are kept for comparison but superseded.
+
+Sensible next steps: (1) individual vetting of the new top ~10 (SIMBAD/literature, Gaia
+binarity indicators, external RVs -- especially #6 with a 7.3 km/s RV error); (2) a Galactic-
+potential MC axis (Allen & Santillan vs the Bailer-Jones/Dauphole & Colin model is a cheap first
+bracket) plus the other 'Oumuamua solutions (2 k=2 etc.); (3) apply the Lindegren et al. 2021 DR3
+parallax zero-point; (4) rebuild/relink the BOINC app (only syntax-checked after the fix) before
+any deployment.
