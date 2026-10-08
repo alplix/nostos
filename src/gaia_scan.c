@@ -32,6 +32,8 @@
 #include "units.h"
 #include "scan_logic.h"
 #include "iso_solutions.h"
+#include "parallax_zeropoint.h"
+#include "csv_range.h"
 
 #define MAX_LINE 65536
 #define MAX_COLS 200
@@ -47,7 +49,14 @@
 
 typedef struct {
     int source_id, ra, dec, parallax, pmra, pmdec, rv;
+    // Parallax zero-point inputs (Lindegren et al. 2021; src/parallax_zeropoint.h).
+    int gmag, nu_eff, pseudocolour, ecl_lat, params_solved;
 } ColumnIndices;
+
+static double field_or_nan(const char *s) {
+    if (s[0] == '\0' || strcmp(s, "null") == 0 || strcmp(s, "NULL") == 0) return NAN;
+    return atof(s);
+}
 
 static int find_column(char **headers, int n_headers, const char *name) {
     for (int i = 0; i < n_headers; i++) {
@@ -70,15 +79,46 @@ static int split_line(char *line, char **out_fields, int max_fields) {
     return n;
 }
 
-int main(int argc, char **argv) {
-    if (argc < 2) {
-        fprintf(stderr, "usage: %s <gaia_csv_path> [max_rows]\n", argv[0]);
-        return 1;
-    }
-    const char *csv_path = argv[1];
-    long max_rows = (argc >= 3) ? atol(argv[2]) : -1; // -1 = no limit, scan the whole file
+static void usage(const char *prog) {
+    fprintf(stderr,
+            "usage: %s <gaia_csv_path> [max_rows] [--iso=oumuamua|borisov] "
+            "[--zpt=lindegren|global|none] [--byte-range=START:END]\n"
+            "  --iso         interstellar object to screen against (default oumuamua)\n"
+            "  --zpt         Gaia DR3 parallax zero-point: the full Lindegren et al. 2021 recipe\n"
+            "                (default), the global -0.017 mas offset, or none (pre-2026-10-08)\n"
+            "  --byte-range  only rows whose first byte lies in [START, END) of the file, so a scan\n"
+            "                can be split across processes (the header is always read at offset 0)\n",
+            prog);
+}
 
-    FILE *f = fopen(csv_path, "r");
+int main(int argc, char **argv) {
+    const char *csv_path = NULL;
+    long max_rows = -1; // -1 = no limit, scan the whole file
+    const char *iso_name = "oumuamua";
+    ZptMode zpt_mode = ZPT_MODE_LINDEGREN;
+    long long byte_start = 0, byte_end = -1;
+    int n_pos = 0;
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], "--iso=", 6) == 0) {
+            iso_name = argv[i] + 6;
+        } else if (strncmp(argv[i], "--zpt=", 6) == 0) {
+            if (gaia_zpt_mode_parse(argv[i] + 6, &zpt_mode) != 0) { usage(argv[0]); return 1; }
+        } else if (strncmp(argv[i], "--byte-range=", 13) == 0) {
+            if (sscanf(argv[i] + 13, "%lld:%lld", &byte_start, &byte_end) != 2 || byte_start < 0 ||
+                byte_end <= byte_start) { usage(argv[0]); return 1; }
+        } else if (argv[i][0] == '-' && argv[i][1] == '-') {
+            usage(argv[0]); return 1;
+        } else if (n_pos == 0) {
+            csv_path = argv[i]; n_pos++;
+        } else if (n_pos == 1) {
+            max_rows = atol(argv[i]); n_pos++;
+        } else {
+            usage(argv[0]); return 1;
+        }
+    }
+    if (!csv_path) { usage(argv[0]); return 1; }
+
+    FILE *f = fopen(csv_path, "rb"); // binary: --byte-range offsets must be exact byte positions
     if (!f) {
         fprintf(stderr, "can't open %s\n", csv_path);
         return 1;
@@ -119,6 +159,28 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "columns found: source_id=%d ra=%d dec=%d parallax=%d pmra=%d pmdec=%d rv=%d\n",
             col.source_id, col.ra, col.dec, col.parallax, col.pmra, col.pmdec, col.rv);
+    col.gmag = find_column(headers, n_headers, "phot_g_mean_mag");
+    col.nu_eff = find_column(headers, n_headers, "nu_eff_used_in_astrometry");
+    col.pseudocolour = find_column(headers, n_headers, "pseudocolour");
+    col.ecl_lat = find_column(headers, n_headers, "ecl_lat");
+    col.params_solved = find_column(headers, n_headers, "astrometric_params_solved");
+    int have_zpt_cols = col.gmag >= 0 && col.nu_eff >= 0 && col.pseudocolour >= 0 &&
+                        col.ecl_lat >= 0 && col.params_solved >= 0;
+    if (zpt_mode == ZPT_MODE_LINDEGREN && !have_zpt_cols) {
+        // Documented fallback (NOTES_method_selection.md, "Gaia DR3 parallax zero-point"): without
+        // the five recipe inputs, apply the global QSO-based offset rather than nothing.
+        fprintf(stderr, "WARNING: zero-point columns missing (phot_g_mean_mag=%d nu_eff=%d "
+                "pseudocolour=%d ecl_lat=%d astrometric_params_solved=%d); using --zpt=global\n",
+                col.gmag, col.nu_eff, col.pseudocolour, col.ecl_lat, col.params_solved);
+        zpt_mode = ZPT_MODE_GLOBAL;
+    }
+    int max_col = 0;
+    {
+        int need[12] = { col.source_id, col.ra, col.dec, col.parallax, col.pmra, col.pmdec, col.rv,
+                         col.gmag, col.nu_eff, col.pseudocolour, col.ecl_lat, col.params_solved };
+        int n_need = (zpt_mode == ZPT_MODE_LINDEGREN) ? 12 : 7;
+        for (int k = 0; k < n_need; k++) if (need[k] > max_col) max_col = need[k];
+    }
 
     // 1I/'Oumuamua's starting state: a point on its exact INBOUND asymptote at the Gaia DR3 epoch
     // (J2016.0), from JPL's barycentric 1600 elements with the total solar-system GM (see
@@ -129,15 +191,38 @@ int main(int argc, char **argv) {
     //    perihelion, had the right direction but was still 2.3% (0.61 km/s) too fast (vis-viva
     //    converges only like 1/r at ~55 AU) -- the residual ~1.4-2x distance gap; and heliocentric
     //    2017-epoch elements point 0.077 deg away from the true barycentric asymptote.
-    double t_start_myr = OUMUAMUA_T_START_DR3_DAYS * NOSTOS_MYR_PER_DAY;
+    // 2I/Borisov (--iso=borisov, 2026-10-08): the same construction from JPL#54's barycentric 1600
+    // elements (src/iso_solutions.h), validated against Ross 573 in
+    // tests/test_pipeline_borisov_ross573.c.
+    OrbitalElements iso_el;
+    double t_start_days;
+    if (strcmp(iso_name, "oumuamua") == 0) {
+        iso_el = OUMUAMUA_ELEMENTS_BARY_1600; t_start_days = OUMUAMUA_T_START_DR3_DAYS;
+    } else if (strcmp(iso_name, "borisov") == 0) {
+        iso_el = BORISOV_ELEMENTS_BARY_1600; t_start_days = BORISOV_T_START_DR3_DAYS;
+    } else {
+        fprintf(stderr, "unknown --iso=%s (oumuamua|borisov)\n", iso_name);
+        return 1;
+    }
+    double t_start_myr = t_start_days * NOSTOS_MYR_PER_DAY;
     PhaseSpace iso_ps;
-    orbital_elements_inbound_asymptote_gm(OUMUAMUA_ELEMENTS_BARY_1600, NOSTOS_GM_SSB, t_start_myr,
+    orbital_elements_inbound_asymptote_gm(iso_el, NOSTOS_GM_SSB, t_start_myr,
                                           &solar_params_default, &iso_ps);
+    fprintf(stderr, "iso=%s zpt=%s byte_range=[%lld, %lld)\n", iso_name, gaia_zpt_mode_name(zpt_mode),
+            byte_start, byte_end);
+
+    // --byte-range: rows whose FIRST byte lies in [byte_start, byte_end), so adjacent ranges cover
+    // every row exactly once (src/csv_range.h, tests/test_csv_range.c).
+    if (!csv_range_begin(f, byte_start, line, MAX_LINE)) {
+        fprintf(stderr, "nothing at or after offset %lld\n", byte_start);
+        return 0;
+    }
 
     Potential mw = milkyway_potential(&milkyway_potential_default);
 
     long n_rows = 0, n_parsed = 0, n_candidates = 0;
-    while (fgets(line, MAX_LINE, f)) {
+    long n_zpt_out_of_range = 0, n_zpt_fallback = 0;
+    while (csv_range_next(f, byte_end, line, MAX_LINE)) {
         n_rows++;
         if (max_rows >= 0 && n_rows > max_rows) break;
         if (n_rows % 2000000 == 0) {
@@ -148,7 +233,7 @@ int main(int argc, char **argv) {
         strncpy(line_copy, line, MAX_LINE - 1);
         line_copy[MAX_LINE - 1] = '\0';
         int n_fields = split_line(line_copy, fields, MAX_COLS);
-        if (n_fields <= col.rv) continue; // malformed/short row, skip
+        if (n_fields <= max_col) continue; // malformed/short row, skip
 
         // Any of these being "null" shouldn't happen for ra/dec/parallax/pmra/pmdec/rv in this
         // already-RV-filtered file, but check defensively rather than crash on a bad row.
@@ -166,7 +251,22 @@ int main(int argc, char **argv) {
         double pmra = atof(fields[col.pmra]);
         double pmdec = atof(fields[col.pmdec]);
         double rv = atof(fields[col.rv]);
+        // Gaia DR3 parallax zero-point (2026-10-08, default ON): parallax_corrected = parallax - Z,
+        // Z ~ -0.01..-0.05 mas from Lindegren et al. 2021's recipe (src/parallax_zeropoint.h).
+        ZptStatus zst = ZPT_OK;
+        double zpt;
+        if (zpt_mode == ZPT_MODE_LINDEGREN) {
+            zpt = gaia_dr3_parallax_zeropoint(field_or_nan(fields[col.gmag]), field_or_nan(fields[col.nu_eff]),
+                                              field_or_nan(fields[col.pseudocolour]),
+                                              field_or_nan(fields[col.ecl_lat]),
+                                              atoi(fields[col.params_solved]), &zst);
+        } else {
+            zpt = gaia_zeropoint_for_mode(zpt_mode, NAN, NAN, NAN, NAN, 0, &zst);
+        }
+        parallax -= zpt;
         if (parallax <= 0) continue; // non-physical / unusable distance
+        if (zst == ZPT_OUT_OF_RANGE) n_zpt_out_of_range++;
+        if (zst == ZPT_FALLBACK) n_zpt_fallback++;
 
         n_parsed++;
 
@@ -226,9 +326,11 @@ int main(int argc, char **argv) {
             int still_at_edge = (fabs(fabs(r.time_at_min_myr) - window_myr) < 2.0 * dt_final);
 
             printf("%llu straight_line_d_pc=%.4f straight_line_t_myr=%.4f "
-                   "gravity_d_pc=%.4f gravity_t_myr=%.4f rel_speed_kms=%.2f search_window_myr=%.2f%s\n",
+                   "gravity_d_pc=%.4f gravity_t_myr=%.4f rel_speed_kms=%.2f search_window_myr=%.2f "
+                   "zpt_mas=%.6f%s%s\n",
                    source_id, d_star_pc, t_star, r.min_distance_kpc * 1000.0, r.time_at_min_myr,
-                   rel_speed_kms, window_myr, still_at_edge ? " WINDOW_LIMITED" : "");
+                   rel_speed_kms, window_myr, zpt, still_at_edge ? " WINDOW_LIMITED" : "",
+                   zst == ZPT_OUT_OF_RANGE ? " ZPT_OUT_OF_RANGE" : zst == ZPT_FALLBACK ? " ZPT_FALLBACK" : "");
             fflush(stdout);
             n_candidates++;
         }
@@ -236,6 +338,9 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "\nDone: %ld rows read, %ld parsed/used, %ld candidates under %.1f pc "
             "(straight-line screen)\n", n_rows, n_parsed, n_candidates, CANDIDATE_THRESHOLD_PC);
+    fprintf(stderr, "zero-point (%s): %ld used stars outside the recipe's calibrated G/colour range "
+            "(evaluated anyway, flagged ZPT_OUT_OF_RANGE), %ld on the global fallback\n",
+            gaia_zpt_mode_name(zpt_mode), n_zpt_out_of_range, n_zpt_fallback);
 
     fclose(f);
     free(line);

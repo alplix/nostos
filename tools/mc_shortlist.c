@@ -14,13 +14,22 @@
 //      identical to the nominal/scan one.
 //
 // Usage: mc_shortlist <stars.txt> <n_samples> <summary_out> [samples_out|-] [min_window_myr]
+//                     [--iso=oumuamua|borisov] [--zpt=lindegren|global|none]
 //   stars.txt: one star per line (lines starting with '#' ignored), whitespace-separated:
 //     source_id ra_deg dec_deg parallax_mas pmra pmdec rv_kms
 //     ra_error_mas dec_error_mas parallax_error_mas pmra_error pmdec_error rv_error_kms
 //     ra_dec_corr ra_parallax_corr ra_pmra_corr ra_pmdec_corr dec_parallax_corr dec_pmra_corr
 //     dec_pmdec_corr parallax_pmra_corr parallax_pmdec_corr pmra_pmdec_corr
-//   (scripts/prepare_mc_shortlist.py writes this from the matched Gaia CSV rows.)
+//     [phot_g_mean_mag nu_eff_used_in_astrometry pseudocolour ecl_lat astrometric_params_solved]
+//   (scripts/prepare_mc_shortlist.py writes this from the matched Gaia CSV rows; the last five
+//   columns, added 2026-10-08, are the parallax zero-point inputs, "nan" for a catalogue null.)
 //   min_window_myr: floor on the backward search window (default 100, gaia_scan.c's own value).
+//   --iso: the ISO and its asymptotic-velocity covariance (default oumuamua: 7c; borisov: JPL#54
+//     asymptote with Bailer-Jones et al. 2020's solution-47 covariance, src/iso_solutions.h).
+//   --zpt: Gaia DR3 parallax zero-point (default lindegren = Lindegren et al. 2021 recipe; a line
+//     without the five extra columns gets the global -0.017 mas fallback, counted on stderr).
+//     The correction shifts the parallax MEAN; the parallax error is left as published (the
+//     recipe's own few-uas systematic uncertainty is small next to DR3 parallax errors here).
 //
 // Summary output: one line per star (header line documents the columns). Distances pc, times
 // Myr (negative = past), speeds km/s; percentiles over the valid MC samples.
@@ -37,6 +46,7 @@
 #include "scan_logic.h"
 #include "star_mc.h"
 #include "iso_solutions.h"
+#include "parallax_zeropoint.h"
 
 #define STEPS_PER_MYR 2000
 #define MAX_ATTEMPTS 6
@@ -82,45 +92,88 @@ static Enc run_encounter(const Potential *mw, PhaseSpace star, PhaseSpace iso, d
     return e;
 }
 
-static int parse_star(const char *line, GaiaStarUncertainty *s) {
-    unsigned long long sid;
-    double v[23];
-    int n = sscanf(line,
-        "%llu %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf "
-        "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf",
-        &sid, &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8], &v[9], &v[10], &v[11],
-        &v[12], &v[13], &v[14], &v[15], &v[16], &v[17], &v[18], &v[19], &v[20], &v[21]);
-    if (n != 23) return 0;
+// Parses one input line. Returns the number of numeric columns after source_id (22 = original
+// format, 27 = with the zero-point inputs) or 0 on error. zp_in gets the five zero-point inputs
+// (NaN when absent). Tokens "nan"/"null" parse as NaN (done by hand: MinGW's scanf family is not
+// reliable for "nan").
+static int parse_star(const char *line, GaiaStarUncertainty *s, double zp_in[5]) {
+    char buf[8192];
+    strncpy(buf, line, sizeof buf - 1);
+    buf[sizeof buf - 1] = '\0';
+    char *tok = strtok(buf, " \t\r\n");
+    if (!tok) return 0;
+    char *end;
+    unsigned long long sid = strtoull(tok, &end, 10);
+    if (*end) return 0;
+    double v[27];
+    int n = 0;
+    while ((tok = strtok(NULL, " \t\r\n")) != NULL) {
+        if (n >= 27) return 0;
+        if (strcmp(tok, "nan") == 0 || strcmp(tok, "null") == 0 || strcmp(tok, "NaN") == 0) {
+            v[n++] = NAN;
+            continue;
+        }
+        v[n++] = strtod(tok, &end);
+        if (*end) return 0;
+    }
+    if (n != 22 && n != 27) return 0;
+    for (int k = 0; k < 22; k++) if (isnan(v[k])) return 0; // astrometry/errors/corrs must be real
     s->source_id = sid;
     s->mean = (Astrometry){ v[0], v[1], v[2], v[3], v[4], v[5] };
     s->ra_error_mas = v[6]; s->dec_error_mas = v[7]; s->parallax_error_mas = v[8];
     s->pmra_error_masyr = v[9]; s->pmdec_error_masyr = v[10]; s->rv_error_kms = v[11];
     for (int k = 0; k < GAIA_N_CORR; k++) s->corr[k] = v[12 + k];
-    return 1;
+    for (int k = 0; k < 5; k++) zp_in[k] = (n == 27) ? v[22 + k] : NAN;
+    return n;
 }
 
 int main(int argc, char **argv) {
-    if (argc < 4) {
-        fprintf(stderr, "usage: %s <stars.txt> <n_samples> <summary_out> [samples_out|-] [min_window_myr]\n", argv[0]);
+    const char *pos[5] = { NULL, NULL, NULL, NULL, NULL };
+    int n_pos = 0;
+    const char *iso_name = "oumuamua";
+    ZptMode zpt_mode = ZPT_MODE_LINDEGREN;
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], "--iso=", 6) == 0) iso_name = argv[i] + 6;
+        else if (strncmp(argv[i], "--zpt=", 6) == 0) {
+            if (gaia_zpt_mode_parse(argv[i] + 6, &zpt_mode) != 0) { fprintf(stderr, "bad %s\n", argv[i]); return 1; }
+        } else if (n_pos < 5) pos[n_pos++] = argv[i];
+        else { fprintf(stderr, "too many arguments\n"); return 1; }
+    }
+    if (n_pos < 3) {
+        fprintf(stderr, "usage: %s <stars.txt> <n_samples> <summary_out> [samples_out|-] [min_window_myr] "
+                "[--iso=oumuamua|borisov] [--zpt=lindegren|global|none]\n", argv[0]);
         return 1;
     }
-    int n_samples = atoi(argv[2]);
-    const char *samples_path = (argc >= 5 && strcmp(argv[4], "-") != 0) ? argv[4] : NULL;
-    double min_window = (argc >= 6) ? atof(argv[5]) : 100.0;
+    int n_samples = atoi(pos[1]);
+    const char *samples_path = (n_pos >= 4 && strcmp(pos[3], "-") != 0) ? pos[3] : NULL;
+    double min_window = (n_pos >= 5) ? atof(pos[4]) : 100.0;
     if (n_samples < 1) { fprintf(stderr, "n_samples must be >= 1\n"); return 1; }
 
-    FILE *in = fopen(argv[1], "r");
-    if (!in) { fprintf(stderr, "can't open %s\n", argv[1]); return 1; }
-    FILE *out = fopen(argv[3], "w");
-    if (!out) { fprintf(stderr, "can't open %s\n", argv[3]); return 1; }
+    OrbitalElements iso_el;
+    double t_start_days;
+    const double *vinf_sigma, *vinf_corr;
+    if (strcmp(iso_name, "oumuamua") == 0) {
+        iso_el = OUMUAMUA_ELEMENTS_BARY_1600; t_start_days = OUMUAMUA_T_START_DR3_DAYS;
+        vinf_sigma = OUMUAMUA_7C_VINF_SIGMA_KMS; vinf_corr = OUMUAMUA_7C_VINF_CORR;
+    } else if (strcmp(iso_name, "borisov") == 0) {
+        iso_el = BORISOV_ELEMENTS_BARY_1600; t_start_days = BORISOV_T_START_DR3_DAYS;
+        vinf_sigma = BORISOV_47_VINF_SIGMA_KMS; vinf_corr = BORISOV_47_VINF_CORR;
+    } else {
+        fprintf(stderr, "unknown --iso=%s\n", iso_name); return 1;
+    }
+
+    FILE *in = fopen(pos[0], "r");
+    if (!in) { fprintf(stderr, "can't open %s\n", pos[0]); return 1; }
+    FILE *out = fopen(pos[2], "w");
+    if (!out) { fprintf(stderr, "can't open %s\n", pos[2]); return 1; }
     FILE *samp = samples_path ? fopen(samples_path, "w") : NULL;
     if (samples_path && !samp) { fprintf(stderr, "can't open %s\n", samples_path); return 1; }
 
-    fprintf(out, "# mc_shortlist: n_samples=%d min_window_myr=%.1f steps_per_myr=%d\n",
-            n_samples, min_window, STEPS_PER_MYR);
+    fprintf(out, "# mc_shortlist: n_samples=%d min_window_myr=%.1f steps_per_myr=%d iso=%s zpt=%s\n",
+            n_samples, min_window, STEPS_PER_MYR, iso_name, gaia_zpt_mode_name(zpt_mode));
     fprintf(out, "# source_id n_valid n_rejected n_window_limited nom_d_pc nom_t_myr nom_v_kms "
                  "d_p05 d_p16 d_p50 d_p84 d_p95 t_p05 t_p16 t_p50 t_p84 t_p95 "
-                 "v_p05 v_p16 v_p50 v_p84 v_p95 f_d_lt_0.5 f_d_lt_1 f_d_lt_2\n");
+                 "v_p05 v_p16 v_p50 v_p84 v_p95 f_d_lt_0.5 f_d_lt_1 f_d_lt_2 zpt_mas\n");
     if (samp) fprintf(samp, "# source_id sample d_pc t_myr v_kms window_limited\n");
 
     Potential mw = milkyway_potential(&milkyway_potential_default);
@@ -129,16 +182,18 @@ int main(int argc, char **argv) {
     // velocity is drawn from Bailer-Jones et al. 2018's own Table 1 covariance for solution 7c
     // (barycentric ICRF km/s), which -- unlike the SBDB osculating-element covariance used before --
     // includes the non-gravitational-parameter uncertainty of the whole passage (~0.01-0.03 km/s).
-    const double t_eval_myr = OUMUAMUA_T_START_DR3_DAYS * NOSTOS_MYR_PER_DAY;
+    // For --iso=borisov the same construction with JPL#54 and Bailer-Jones et al. 2020's solution-47
+    // covariance (see BORISOV_47_VINF_SIGMA_KMS's comment).
+    const double t_eval_myr = t_start_days * NOSTOS_MYR_PER_DAY;
     PhaseSpace iso_nom;
-    if (!orbital_elements_inbound_asymptote_gm(OUMUAMUA_ELEMENTS_BARY_1600, NOSTOS_GM_SSB, t_eval_myr,
+    if (!orbital_elements_inbound_asymptote_gm(iso_el, NOSTOS_GM_SSB, t_eval_myr,
                                                &solar_params_default, &iso_nom)) {
         fprintf(stderr, "bad nominal ISO elements\n"); return 1;
     }
     const double iso_mean[MC_MAX_DIM] = { 0.0, 0.0, 0.0 };
     double iso_cov[MC_MAX_DIM][MC_MAX_DIM] = {{0}};
     {
-        const double *sg = OUMUAMUA_7C_VINF_SIGMA_KMS, *rc = OUMUAMUA_7C_VINF_CORR;
+        const double *sg = vinf_sigma, *rc = vinf_corr;
         const double rho[3][3] = { { 1.0, rc[0], rc[1] }, { rc[0], 1.0, rc[2] }, { rc[1], rc[2], 1.0 } };
         for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) iso_cov[i][j] = rho[i][j] * sg[i] * sg[j];
     }
@@ -157,12 +212,21 @@ int main(int argc, char **argv) {
     double *v = malloc(n_samples * sizeof(double));
 
     char line[8192];
-    int star_no = 0;
+    int star_no = 0, n_zpt_global_fallback = 0, n_zpt_oor = 0;
     while (fgets(line, sizeof line, in)) {
         if (line[0] == '#' || line[0] == '\n') continue;
         GaiaStarUncertainty s;
-        if (!parse_star(line, &s)) { fprintf(stderr, "skipping unparseable line: %.60s\n", line); continue; }
+        double zp_in[5];
+        int ncol = parse_star(line, &s, zp_in);
+        if (!ncol) { fprintf(stderr, "skipping unparseable line: %.60s\n", line); continue; }
         star_no++;
+        // Gaia DR3 parallax zero-point (2026-10-08, default ON): shift the parallax MEAN by -Z.
+        ZptStatus zst = ZPT_OK;
+        double zpt = gaia_zeropoint_for_mode(zpt_mode, zp_in[0], zp_in[1], zp_in[2], zp_in[3],
+                                             isnan(zp_in[4]) ? 0 : (int)zp_in[4], &zst);
+        if (zst == ZPT_FALLBACK) n_zpt_global_fallback++;
+        if (zst == ZPT_OUT_OF_RANGE) n_zpt_oor++;
+        s.mean.parallax_mas -= zpt;
 
         PhaseSpace star_nom;
         astrometry_to_galactocentric(s.mean, &solar_params_default, &star_nom);
@@ -173,7 +237,7 @@ int main(int argc, char **argv) {
         if (mc_cholesky(cov, 6, L) != 0) {
             fprintf(stderr, "%llu: star covariance not positive-definite, skipping MC\n",
                     (unsigned long long)s.source_id);
-            fprintf(out, "%llu 0 0 0 %.4f %.4f %.3f NOT_PD\n", (unsigned long long)s.source_id,
+            fprintf(out, "# %llu 0 0 0 %.4f %.4f %.3f NOT_PD\n", (unsigned long long)s.source_id,
                     nom.d_pc, nom.t_myr, nom.v_kms);
             fflush(out);
             continue;
@@ -219,7 +283,7 @@ int main(int argc, char **argv) {
         for (int i = 0; i < 5; i++) fprintf(out, " %.4f", percentile(t, n_valid, P[i]));
         for (int i = 0; i < 5; i++) fprintf(out, " %.3f", percentile(v, n_valid, P[i]));
         double nv = n_valid > 0 ? n_valid : 1;
-        fprintf(out, " %.4f %.4f %.4f\n", n05 / nv, n1 / nv, n2 / nv);
+        fprintf(out, " %.4f %.4f %.4f %.6f\n", n05 / nv, n1 / nv, n2 / nv, zpt);
         fflush(out);
         if (samp) fflush(samp);
         fprintf(stderr, "[%d] %llu nominal d=%.4f pc | MC median d=%.4f pc, f(<1pc)=%.3f, %d valid, %d edge\n",
@@ -227,6 +291,8 @@ int main(int argc, char **argv) {
                 n1 / nv, n_valid, n_edge);
     }
 
+    fprintf(stderr, "zero-point (%s): %d stars on the global fallback, %d outside the calibrated range\n",
+            gaia_zpt_mode_name(zpt_mode), n_zpt_global_fallback, n_zpt_oor);
     free(d); free(t); free(v);
     fclose(in); fclose(out);
     if (samp) fclose(samp);

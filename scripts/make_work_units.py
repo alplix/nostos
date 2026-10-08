@@ -13,11 +13,23 @@ correctly -- the actual registration/distribution step is left for later.
 
 Usage:
     python scripts/make_work_units.py <gaia_csv> <out_dir> [--chunk-size N] [--max-rows N]
+                                      [--zpt lindegren|global|none]
+
+Gaia DR3 parallax zero-point (2026-10-08, default ON, same as src/gaia_scan.c and
+tools/mc_shortlist.c): the parallax written to each work unit is parallax - Z, with Z from the Gaia
+collaboration's official `gaiadr3_zeropoint` package (Lindegren et al. 2021; `pip install
+gaiadr3-zeropoint`). The BOINC app itself never sees the recipe inputs, so the correction has to
+happen here. Stars whose recipe inputs are null/invalid get the global -0.017 mas offset (counted);
+--zpt global applies -0.017 mas to every star; --zpt none writes the raw catalogue parallax.
 """
 import argparse
 import csv
+import math
 import os
 import sys
+import warnings
+
+ZPT_GLOBAL_MAS = -0.017  # src/parallax_zeropoint.h NOSTOS_ZPT_GLOBAL_MAS
 
 # 1I/'Oumuamua: JPL Horizons BARYCENTRIC osculating elements at 1600-01-01 TDB (solution JPL#16 =
 # 7c), the same set as src/iso_solutions.h's OUMUAMUA_ELEMENTS_BARY_1600. src/main_nostos_boinc.cpp
@@ -71,6 +83,41 @@ def write_work_unit(path, stars_chunk):
             )
 
 
+def _float_or_nan(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return math.nan
+
+
+def zero_points(rows, mode):
+    """Z (mas) for each raw CSV row dict; returns (list_of_Z, n_global_fallback)."""
+    if mode == "none":
+        return [0.0] * len(rows), 0
+    if mode == "global":
+        return [ZPT_GLOBAL_MAS] * len(rows), 0
+    import numpy as np
+    from zero_point import zpt as _zpt
+    if not getattr(zero_points, "_loaded", False):
+        _zpt.load_tables()
+        zero_points._loaded = True
+    g = np.array([_float_or_nan(r.get("phot_g_mean_mag")) for r in rows])
+    nu = np.array([_float_or_nan(r.get("nu_eff_used_in_astrometry")) for r in rows])
+    pc = np.array([_float_or_nan(r.get("pseudocolour")) for r in rows])
+    b = np.array([_float_or_nan(r.get("ecl_lat")) for r in rows])
+    ps = np.array([_float_or_nan(r.get("astrometric_params_solved")) for r in rows])
+    ok = (ps == 31) | (ps == 95)
+    z = np.full(len(rows), np.nan)
+    if ok.any():
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # out-of-range G/colour: evaluated anyway, like the C port
+            # Array call: the package's scalar path breaks under NumPy >= 2 (NEP 50).
+            z[ok] = _zpt.get_zpt(g[ok], nu[ok], pc[ok], b[ok], ps[ok])
+    bad = ~np.isfinite(z)
+    z[bad] = ZPT_GLOBAL_MAS
+    return [float(x) for x in z], int(bad.sum())
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("gaia_csv")
@@ -87,6 +134,7 @@ def main():
     # how many stars one work unit covers.
     ap.add_argument("--chunk-size", type=int, default=150)
     ap.add_argument("--max-rows", type=int, default=None)
+    ap.add_argument("--zpt", choices=["lindegren", "global", "none"], default="lindegren")
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -95,15 +143,17 @@ def main():
     n_rows = 0
     n_written = 0
     n_chunks = 0
+    n_zpt_fallback = 0
+    pending = []  # raw rows, zero-pointed in batches (one vectorised call per batch)
 
-    with open(args.gaia_csv, newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            n_rows += 1
-            if args.max_rows and n_rows > args.max_rows:
-                break
+    def flush_pending():
+        nonlocal chunk, n_written, n_chunks, n_zpt_fallback, pending
+        zs, nfb = zero_points(pending, args.zpt)
+        n_zpt_fallback += nfb
+        for row, z in zip(pending, zs):
             try:
-                parallax = float(row["parallax"])
+                # Same order as src/gaia_scan.c: correct first, then reject non-positive parallaxes.
+                parallax = float(row["parallax"]) - z
                 if parallax <= 0:
                     continue
                 star = {
@@ -115,7 +165,7 @@ def main():
                     "pmdec": float(row["pmdec"]),
                     "rv": float(row["radial_velocity"]),
                 }
-            except (ValueError, KeyError):
+            except (ValueError, KeyError, TypeError):
                 continue
             chunk.append(star)
             n_written += 1
@@ -123,13 +173,27 @@ def main():
                 write_work_unit(os.path.join(args.out_dir, f"wu_{n_chunks:06d}_in"), chunk)
                 n_chunks += 1
                 chunk = []
+        pending = []
+
+    with open(args.gaia_csv, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            n_rows += 1
+            if args.max_rows and n_rows > args.max_rows:
+                break
+            pending.append(row)
+            if len(pending) >= 20000:
+                flush_pending()
+    flush_pending()
 
     if chunk:
         write_work_unit(os.path.join(args.out_dir, f"wu_{n_chunks:06d}_in"), chunk)
         n_chunks += 1
 
     print(f"{n_rows} rows read, {n_written} stars written across {n_chunks} work units "
-          f"(chunk size {args.chunk_size}) in {args.out_dir}", file=sys.stderr)
+          f"(chunk size {args.chunk_size}) in {args.out_dir}; parallax zero-point: {args.zpt}"
+          f"{f' ({n_zpt_fallback} stars on the global -0.017 mas fallback)' if args.zpt == 'lindegren' else ''}",
+          file=sys.stderr)
 
 
 if __name__ == "__main__":

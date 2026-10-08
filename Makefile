@@ -1,9 +1,10 @@
 CC = gcc
+PYTHON ?= python
 CFLAGS = -O2 -std=c99 -Wall -Wextra -lm
 
 .PHONY: test clean tools
 
-test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_santillan build/test_coords build/test_coords_astropy_crosscheck build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck build/test_montecarlo build/test_mc_search build/test_pipeline_oumuamua_hip3757 build/test_pipeline_borisov_ross573 build/test_scan_logic build/test_nostos_io build/test_star_mc
+test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_santillan build/test_coords build/test_coords_astropy_crosscheck build/test_encounter build/test_orbital_elements build/test_horizons_crosscheck build/test_montecarlo build/test_mc_search build/test_pipeline_oumuamua_hip3757 build/test_pipeline_borisov_ross573 build/test_scan_logic build/test_nostos_io build/test_star_mc build/test_parallax_zeropoint build/test_csv_range
 	./build/test_kepler
 	./build/test_milkyway_galpy
 	./build/test_milkyway_allen_santillan
@@ -19,6 +20,9 @@ test: build/test_kepler build/test_milkyway_galpy build/test_milkyway_allen_sant
 	./build/test_scan_logic
 	./build/test_nostos_io
 	./build/test_star_mc
+	./build/test_parallax_zeropoint
+	./build/test_csv_range
+	$(PYTHON) tests/test_make_work_units.py
 
 build:
 	mkdir -p build
@@ -70,8 +74,8 @@ build/test_star_mc: tests/test_star_mc.c src/star_mc.c src/star_mc.h src/monteca
 
 tools: build/gaia_scan build/oumuamua_velocity_covariance build/mc_vs_bestfit_ross573 build/mc_shortlist
 
-build/gaia_scan: src/gaia_scan.c src/iso_solutions.h src/orbital_elements.h src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c | build
-	$(CC) $(CFLAGS) -Isrc src/gaia_scan.c src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c -o build/gaia_scan -lm
+build/gaia_scan: src/gaia_scan.c src/iso_solutions.h src/orbital_elements.h src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c src/parallax_zeropoint.c src/parallax_zeropoint.h src/csv_range.c src/csv_range.h | build
+	$(CC) $(CFLAGS) -Isrc src/gaia_scan.c src/coords.c src/orbital_elements.c src/encounter.c src/potential.c src/scan_logic.c src/parallax_zeropoint.c src/csv_range.c -o build/gaia_scan -lm
 
 build/oumuamua_velocity_covariance: tools/oumuamua_velocity_covariance.c src/iso_solutions.h src/orbital_elements.c src/coords.c | build
 	$(CC) $(CFLAGS) tools/oumuamua_velocity_covariance.c src/orbital_elements.c src/coords.c -o build/oumuamua_velocity_covariance -lm
@@ -79,8 +83,14 @@ build/oumuamua_velocity_covariance: tools/oumuamua_velocity_covariance.c src/iso
 build/mc_vs_bestfit_ross573: tools/mc_vs_bestfit_ross573.c src/iso_solutions.h src/star_mc.c src/star_mc.h src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c | build
 	$(CC) $(CFLAGS) tools/mc_vs_bestfit_ross573.c src/star_mc.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c -o build/mc_vs_bestfit_ross573 -lm
 
-build/mc_shortlist: tools/mc_shortlist.c src/star_mc.c src/star_mc.h src/iso_solutions.h src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c src/scan_logic.c | build
-	$(CC) $(CFLAGS) -Isrc tools/mc_shortlist.c src/star_mc.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c src/scan_logic.c -o build/mc_shortlist -lm
+build/mc_shortlist: tools/mc_shortlist.c src/star_mc.c src/star_mc.h src/iso_solutions.h src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c src/scan_logic.c src/parallax_zeropoint.c src/parallax_zeropoint.h src/csv_range.c src/csv_range.h | build
+	$(CC) $(CFLAGS) -Isrc tools/mc_shortlist.c src/star_mc.c src/orbital_elements.c src/coords.c src/encounter.c src/potential.c src/montecarlo.c src/scan_logic.c src/parallax_zeropoint.c -o build/mc_shortlist -lm
+
+build/test_parallax_zeropoint: tests/test_parallax_zeropoint.c src/parallax_zeropoint.c src/parallax_zeropoint.h | build
+	$(CC) $(CFLAGS) tests/test_parallax_zeropoint.c src/parallax_zeropoint.c -o build/test_parallax_zeropoint -lm
+
+build/test_csv_range: tests/test_csv_range.c src/csv_range.c src/csv_range.h | build
+	$(CC) $(CFLAGS) tests/test_csv_range.c src/csv_range.c -o build/test_csv_range -lm
 
 clean:
 	rm -rf build

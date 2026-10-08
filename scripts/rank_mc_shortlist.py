@@ -14,7 +14,8 @@ Quality flags (any one is a reason for extra skepticism, not automatic rejection
   close double), PLX<10 (parallax_over_error < 10).
 
 Usage: python scripts/rank_mc_shortlist.py <summary.txt> <samples.txt> <quality.tsv>
-                                           <scan_full.txt> <out_table.txt>
+                                           <scan_full.txt[,scan_part2.txt,...]> <out_table.txt>
+The ISO name and zero-point mode are taken from the summary's own "# mc_shortlist:" header line.
 """
 import csv
 import sys
@@ -50,7 +51,11 @@ def main():
     summary_path, samples_path, quality_path, scan_path, out_path = sys.argv[1:6]
     cols = None
     stars = []
+    run_info = {"iso": "oumuamua", "zpt": "none"}  # summaries written before 2026-10-08
     for line in open(summary_path):
+        if line.startswith("# mc_shortlist:"):
+            run_info.update(dict(p.split("=", 1) for p in line.split()[2:] if "=" in p))
+            continue
         if line.startswith("# source_id"):
             cols = line[2:].split()
             continue
@@ -72,11 +77,12 @@ def main():
 
     wanted = {s["source_id"] for s in stars}
     scan = {}
-    for line in open(scan_path):
-        sid = line.split(" ", 1)[0]
-        if sid in wanted and sid not in scan:
-            kv = dict(p.split("=") for p in line.split()[1:] if "=" in p)
-            scan[sid] = (float(kv["gravity_d_pc"]), float(kv["gravity_t_myr"]), float(kv["rel_speed_kms"]))
+    for path in scan_path.split(","):
+        for line in open(path):
+            sid = line.split(" ", 1)[0]
+            if sid in wanted and sid not in scan:
+                kv = dict(p.split("=") for p in line.split()[1:] if "=" in p)
+                scan[sid] = (float(kv["gravity_d_pc"]), float(kv["gravity_t_myr"]), float(kv["rel_speed_kms"]))
 
     for s in stars:
         for k in list(s):
@@ -94,12 +100,16 @@ def main():
     stars.sort(key=lambda s: (-s["f_d_lt_1"], -s["f_d_lt_2"], s["d_p50"]))
 
     with open(out_path, "w") as out:
-        out.write(f"# Stage-2 Monte Carlo of a {len(stars)}-star 'Oumuamua shortlist (tools/mc_shortlist.c), ranked by\n"
+        iso_label = {"oumuamua": "'Oumuamua", "borisov": "2I/Borisov"}.get(run_info["iso"], run_info["iso"])
+        zpt_label = {"lindegren": "Lindegren et al. 2021 Gaia DR3 parallax zero-point applied",
+                     "global": "global -0.017 mas Gaia DR3 parallax zero-point applied",
+                     "none": "no Gaia parallax zero-point correction"}.get(run_info["zpt"], run_info["zpt"])
+        out.write(f"# Stage-2 Monte Carlo of a {len(stars)}-star {iso_label} shortlist (tools/mc_shortlist.c), ranked by\n"
                   "# robustness: fraction of samples with d<1pc, then d<2pc, then median d. d in pc, t in Myr,\n"
                   "# v in km/s. 'scan' = the full-catalog gaia_scan.c nominal; 'nom' = this run's own nominal\n"
                   "# (same code path, should match). f_cs = fraction with d<1pc AND v<20km/s.\n"
-                  "# Measurement uncertainty only (Gaia star + 'Oumuamua asymptote); no Galactic-potential\n"
-                  "# uncertainty and no Gaia parallax zero-point correction. Since the 2026-10-08 starting-state\n"
+                  f"# Measurement uncertainty only (Gaia star + {iso_label} asymptote); no Galactic-potential\n"
+                  f"# uncertainty; {zpt_label}. Since the 2026-10-08 starting-state\n"
                   "# fix the pipeline reproduces published encounter distances to a few hundredths of a pc\n"
                   "# (NOTES_method_selection.md, \"Residual distance gap\").\n")
         out.write("# rank source_id n_valid scan_d nom_d d_p05 d_p16 d_p50 d_p84 d_p95 "

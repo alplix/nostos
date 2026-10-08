@@ -19,6 +19,11 @@ ASTRO = ["ra", "dec", "parallax", "pmra", "pmdec", "radial_velocity"]
 ERRS = ["ra_error", "dec_error", "parallax_error", "pmra_error", "pmdec_error", "radial_velocity_error"]
 CORRS = ["ra_dec_corr", "ra_parallax_corr", "ra_pmra_corr", "ra_pmdec_corr", "dec_parallax_corr",
          "dec_pmra_corr", "dec_pmdec_corr", "parallax_pmra_corr", "parallax_pmdec_corr", "pmra_pmdec_corr"]
+# Gaia DR3 parallax zero-point inputs (Lindegren et al. 2021), appended as five extra columns since
+# 2026-10-08; tools/mc_shortlist.c applies the correction itself (src/parallax_zeropoint.c). A null
+# is written as "nan" (e.g. pseudocolour for every 5-parameter solution).
+ZPT_INPUTS = ["phot_g_mean_mag", "nu_eff_used_in_astrometry", "pseudocolour", "ecl_lat",
+              "astrometric_params_solved"]
 QUALITY = ["designation", "phot_g_mean_mag", "bp_rp", "parallax_over_error", "ruwe",
            "astrometric_params_solved", "astrometric_excess_noise_sig", "ipd_frac_multi_peak",
            "ipd_gof_harmonic_amplitude", "duplicated_source", "non_single_star",
@@ -64,7 +69,7 @@ def main():
 
     n_null_corr = 0
     with open(stars_out, "w") as out, open(quality_out, "w") as q:
-        out.write("# source_id " + " ".join(ASTRO + ERRS + CORRS) + "\n")
+        out.write("# source_id " + " ".join(ASTRO + ERRS + CORRS + ZPT_INPUTS) + "\n")
         q.write("source_id\t" + "\t".join(QUALITY) + "\tnull_fields\n")
         for sid in wanted:
             if sid not in rows:
@@ -84,6 +89,8 @@ def main():
                     n_null_corr += 1
                     x = "0"  # documented assumption: missing correlation treated as uncorrelated
                 fields.append(x)
+            for name in ZPT_INPUTS:
+                fields.append(val(r, name) or "nan")
             out.write(" ".join(fields) + "\n")
             q.write(sid + "\t" + "\t".join(val(r, n) or "null" for n in QUALITY) + "\t"
                     + (",".join(nulls) or "-") + "\n")

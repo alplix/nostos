@@ -47,6 +47,8 @@ static const OrbitalElements BORISOV_ELEMENTS_BARY_1600 = {
 #define GAIA_DR3_EPOCH_JD 2457389.0           // J2016.0
 // Time of the Gaia DR3 epoch relative to 'Oumuamua's (barycentric) perihelion, days (~ -616.6).
 #define OUMUAMUA_T_START_DR3_DAYS (GAIA_DR3_EPOCH_JD - OUMUAMUA_TP_BARY_JD)
+// Same for 2I/Borisov (~ -1437.2 days).
+#define BORISOV_T_START_DR3_DAYS (GAIA_DR3_EPOCH_JD - BORISOV_TP_BARY_JD)
 
 // 'Oumuamua's asymptotic-velocity uncertainty for solution 7c as published by Bailer-Jones et al.
 // 2018 (AJ 156, 205), Table 1: 1-sigma of the barycentric ICRF velocity components (km/s) and their
@@ -56,6 +58,19 @@ static const OrbitalElements BORISOV_ELEMENTS_BARY_1600 = {
 // Monte Carlo. Values transcribed from the paper's Table 1 via the arXiv HTML rendering.
 static const double OUMUAMUA_7C_VINF_SIGMA_KMS[3] = { 0.0101308, 0.0307732, 0.0149700 };
 static const double OUMUAMUA_7C_VINF_CORR[3] = { 0.994705, -0.989469, -0.999101 };
+
+// 2I/Borisov's asymptotic-velocity uncertainty as published by Bailer-Jones et al. 2020 (A&A 634,
+// A14), Table 1, for JPL solution 47 -- the solution all of that paper's encounter results use
+// (radiant RA 32.79720, Dec 59.44014 deg, v_inf 32.286894 km/s): 1-sigma of the barycentric ICRF
+// components (km/s) and correlations (vx,vy), (vx,vz), (vy,vz). Includes the non-gravitational-
+// parameter uncertainty of the passage. The pipeline's NOMINAL Borisov state is JPL#54's
+// barycentric asymptote (BORISOV_ELEMENTS_BARY_1600; a later fit with more data, radiant within
+// ~0.02 deg of #47), so tools/mc_shortlist.c --iso=borisov applies this covariance around #54 --
+// the closest published stand-in for #54's own (not published as an asymptote covariance). At
+// 0.001-0.004 km/s it is negligible next to any Gaia star's RV error. Transcribed 2026-10-08 from
+// the arXiv rendering of Table 1 (arXiv:1912.10213, re-checked 2026-10-08; "we use only solution 47").
+static const double BORISOV_47_VINF_SIGMA_KMS[3] = { 0.0024122, 0.0011258, 0.0041225 };
+static const double BORISOV_47_VINF_CORR[3] = { 0.9282, 0.9886, 0.9500 };
 
 // 6x6 marginal covariance over (e, q[au], tp[day], node[deg], peri[deg], i[deg]) -- the top-left
 // block of JPL SBDB's 9x9 orbit-fit covariance (Solution 7c / Micheli et al. 2018, quoted at epoch
