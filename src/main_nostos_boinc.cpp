@@ -33,14 +33,18 @@
 #include "boinc_api.h"
 #include "filesys.h"
 
+// The physics modules are plain C99 compiled with gcc (scripts/build_boinc_linux.sh), so their
+// declarations need C linkage here (the 2026-10-08 rebuild failed to link without this).
+extern "C" {
 #include "coords.h"
 #include "orbital_elements.h"
 #include "potential.h"
 #include "mc_search.h"
 #include "units.h"
 #include "nostos_io.h"
+}
 
-int main(int argc, char **argv) {
+int main(int, char **) {
     BOINC_OPTIONS options;
     boinc_options_defaults(options);
     int retval = boinc_init_options(&options);
