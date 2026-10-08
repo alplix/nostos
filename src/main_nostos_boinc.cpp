@@ -25,6 +25,7 @@
 // Output file format (plain text): one line per star whose mc_search_stage1() result's
 // min_distance_kpc fell under the threshold:
 //   source_id min_distance_pc mean_min_distance_pc time_at_min_myr
+// followed by one final line "# done <n_stars>" once every star of the work unit was searched.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -153,6 +154,9 @@ int main(int, char **) {
         }
     }
 
+    // Completion trailer: lets the validator tell "no star came close" (only this line) from a
+    // crashed or truncated run, and check every star of the work unit was searched.
+    fprintf(outf, "# done %zu\n", n_stars);
     fclose(outf);
     free(stars);
     boinc_finish(0);
