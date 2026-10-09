@@ -36,6 +36,17 @@ static const OrbitalElements BORISOV_ELEMENTS_BARY_1600 = {
     .e = 3.362344839910536, .q_au = 2.013421232409241,
     .i_deg = 44.04464609191959, .node_deg = 308.1044985515907, .peri_deg = 209.1125494955898,
 };
+// 3I/ATLAS (C/2025 N1), added 2026-10-09: JPL Horizons barycentric (@0) osculating elements at
+// 1600-01-01 TDB, solution JPL#54 (data arc 2025-05-15..2026-02-19, with non-gravitational
+// parameters). Inbound radiant RA 295.0386, Dec -19.0710, v_inf 57.968 km/s (same computation that
+// reproduces Bailer-Jones et al. 2018's 'Oumuamua radiant exactly). No published asymptotic-velocity
+// covariance yet; the BOINC work units use an isotropic 0.01 km/s per axis (the JPL#54 formal
+// uncertainty is ~2e-4 km/s).
+static const OrbitalElements ATLAS_ELEMENTS_BARY_1600 = {
+    .e = 6.150258201649122, .q_au = 1.361517372130915,
+    .i_deg = 175.1279533147388, .node_deg = 322.2508167172902, .peri_deg = 128.0966863161025,
+};
+#define ATLAS_TP_BARY_JD 2460978.104133084416
 #define OUMUAMUA_TP_BARY_JD 2458005.600382605568
 #define BORISOV_TP_BARY_JD 2458826.211501355749
 

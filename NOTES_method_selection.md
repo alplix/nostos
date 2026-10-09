@@ -1278,3 +1278,24 @@ The three far rows were correctly filtered out by the 50 pc threshold. HIP 3757 
 ~0.6 pc as required; the clone mean sits a little above the nominal (a miss distance is the length
 of a vector, so ISO-velocity scatter biases it upward) and the clone minimum below it, as expected.
 Nothing deployed; no work generator/validator/server registration.
+
+
+## 3I/ATLAS added to the BOINC search (2026-10-09)
+
+3I/ATLAS (C/2025 N1) is the third ISO searched (`nostos_iso` id 3, after 'Oumuamua and Borisov).
+Elements: JPL Horizons barycentric 1600-01-01 osculating elements, solution JPL#54 (arc 2025-05-15
+to 2026-02-19, non-gravitational A1-A3 fitted); the same Horizons query reproduces
+`OUMUAMUA_ELEMENTS_BARY_1600` to every digit. Inbound radiant RA 295.0386, Dec -19.0710,
+v_inf 57.968 km/s. Velocity covariance: no published one; JPL#54's formal elements give
+sigma(v_inf) ~ 2e-4 km/s, so an isotropic 0.01 km/s per axis is used (conservative, and negligible
+next to the stars' RV errors, which stage 2 handles).
+
+**Check against the literature.** Perez-Couto et al. 2025 (arXiv:2509.07678; 10 Myr, Gaia DR3
+subset, MilkyWayPotential2022, a 2025 de la Fuente Marcos et al. pre-entry state) report the
+closest encounter Gaia DR3 6863591389529611264 at 0.303 +- 0.005 pc, t = -0.720 +- 0.003 Myr,
+v_rel 34.97 km/s. The BOINC app (x86_64, 100 clones) gives 0.381 pc (closest clone) / 0.397 pc
+(clone mean) at t = -0.716 Myr. The time agrees to 0.5%; the distance is 0.08 pc larger. Over the
+~26 pc travelled in 0.72 Myr at 35 km/s that is a ~0.18 deg difference in the incoming direction,
+consistent with the orbit-solution difference (early 2025 solutions had e ~ 6.18; JPL#54 has
+6.150 with a much longer arc and a non-gravitational model). Not a pipeline discrepancy: the same
+pipeline reproduces three published encounters of 1I and 2I within their intervals.
