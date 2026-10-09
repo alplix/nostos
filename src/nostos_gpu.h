@@ -30,6 +30,42 @@ typedef struct {
 // progress(steps_done, n_steps, user) is called after every slice of steps.
 typedef void (*NgProgress)(int steps_done, int n_steps, void *user);
 
+// Adaptive kernel slices (2026-10-09): a fixed 500 steps per launch took over 2 s on a GTX 750 Ti
+// (weak fp64) and Windows' GPU watchdog (TDR) killed the kernel (OpenCL error -36). Each launch is
+// timed and the next one sized to take about NG_TARGET_LAUNCH_S, starting small. Splitting the
+// steps differently does not change any result.
+#define NG_TARGET_LAUNCH_S 0.25
+#define NG_FIRST_SLICE 20
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+static inline double ng_now(void) {
+    LARGE_INTEGER f, c;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart / (double)f.QuadPart;
+}
+#else
+#include <time.h>
+static inline double ng_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+#endif
+static inline int ng_next_slice(int k, double elapsed, int max_k) {
+    double want = elapsed > 1e-4 ? k * (NG_TARGET_LAUNCH_S / elapsed) : k * 4.0;
+    if (want > k * 4.0) want = k * 4.0;     // grow at most 4x per launch
+    if (want > max_k) want = max_k;
+    if (want < 1) want = 1;
+    return (int)want;
+}
+
 // CUDA backend. Returns 0 on success.
 int ng_cuda_init(int device);
 int ng_cuda_run(const NgBatch *b, int steps_per_launch, double *out_min_d, double *out_t_min,

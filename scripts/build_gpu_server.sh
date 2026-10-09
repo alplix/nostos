@@ -48,7 +48,7 @@ gcc -O2 -std=c99 -I src -DCL_TARGET_OPENCL_VERSION=120 -c src/cl_dynload.c -o ob
 g++ -O2 -std=c++17 -DNG_OPENCL -I src -I $B/api -I $B/lib -c src/main_nostos_gpu_boinc.cpp -o obj_ocl/main.o
 for vt in ati:amd nvidia:nvidia; do
     tag=${vt%%:*}; vendor=${vt##*:}
-    gcc -O2 -std=c99 -I src -DCL_TARGET_OPENCL_VERSION=120 "-DEXPECTED_GPU_VENDOR=\"$vendor\"" -c src/nostos_opencl.c -o obj_ocl/nostos_opencl_$tag.o
+    gcc -O2 -std=c99 -D_POSIX_C_SOURCE=200809L -I src -DCL_TARGET_OPENCL_VERSION=120 "-DEXPECTED_GPU_VENDOR=\"$vendor\"" -c src/nostos_opencl.c -o obj_ocl/nostos_opencl_$tag.o
     g++ obj_ocl/main.o obj_ocl/nostos_opencl_$tag.o obj_ocl/cl_dynload.o obj_ocl/coords.o obj_ocl/orbital_elements.o obj_ocl/potential.o obj_ocl/montecarlo.o obj_ocl/nostos_io.o \
         $B/api/.libs/libboinc_api.a $B/lib/.libs/libboinc.a -lpthread -ldl -lrt -static-libstdc++ -static-libgcc \
         -o out/nostos_opencl_v${V}_linux_x86_64_$tag

@@ -97,8 +97,11 @@ int ng_cl_run(const NgBatch *b, int steps_per_launch, double *out_min_d, double 
     if (!d_star || !d_iso || !d_state || !d_best || !d_par) { fprintf(stderr, "nostos_opencl: buffer allocation failed\n"); goto out; }
     size_t global = ((size_t)n + g_local - 1) / g_local * g_local;
     double dt = b->dt;
-    for (int s = 0; s < b->n_steps; s += steps_per_launch) {
-        int k = b->n_steps - s < steps_per_launch ? b->n_steps - s : steps_per_launch;
+    int slice = NG_FIRST_SLICE < steps_per_launch ? NG_FIRST_SLICE : steps_per_launch;
+    int launches = 0;
+    for (int s = 0; s < b->n_steps; ) {
+        int k = b->n_steps - s < slice ? b->n_steps - s : slice;
+        double t0 = ng_now();
         cl_api.SetKernelArg(g_k, 0, sizeof(cl_mem), &d_star);
         cl_api.SetKernelArg(g_k, 1, sizeof(cl_mem), &d_iso);
         cl_api.SetKernelArg(g_k, 2, sizeof(cl_mem), &d_state);
@@ -110,9 +113,13 @@ int ng_cl_run(const NgBatch *b, int steps_per_launch, double *out_min_d, double 
         cl_api.SetKernelArg(g_k, 8, sizeof(int), &n);
         err = cl_api.EnqueueNDRangeKernel(g_q, g_k, 1, NULL, &global, &g_local, 0, NULL, NULL);
         if (err == CL_SUCCESS) err = cl_api.Finish(g_q);
-        if (err != CL_SUCCESS) { fprintf(stderr, "nostos_opencl: kernel failed (%d)\n", err); goto out; }
-        if (progress) progress(s + k, b->n_steps, user);
+        if (err != CL_SUCCESS) { fprintf(stderr, "nostos_opencl: kernel failed (%d) at step %d, slice %d\n", err, s, k); goto out; }
+        s += k;
+        slice = ng_next_slice(k, ng_now() - t0, steps_per_launch);
+        launches++;
+        if (progress) progress(s, b->n_steps, user);
     }
+    fprintf(stderr, "nostos_opencl: %d pairs, %d launches, last slice %d steps\n", n, launches, slice);
     best = (double *)malloc(sizeof(double) * 2 * (size_t)n);
     if (!best || cl_api.EnqueueReadBuffer(g_q, d_best, CL_TRUE, 0, sizeof(double) * 2 * n, best, 0, NULL, NULL) != CL_SUCCESS) {
         fprintf(stderr, "nostos_opencl: result read failed\n"); goto out;

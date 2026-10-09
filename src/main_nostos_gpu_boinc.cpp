@@ -9,7 +9,7 @@
 // Stars are processed in batches (NG_BATCH_STARS, default 2000; env NOSTOS_BATCH_STARS); the
 // checkpoint is the index of the next star, written after each finished batch (a batch is a minute
 // or two on a mid-range GPU). Each kernel launch runs a slice of the 100,000 steps
-// (NOSTOS_STEPS_PER_LAUNCH, default 500) so no launch approaches a driver watchdog.
+// sized to take ~0.25 s (nostos_gpu.h; NOSTOS_STEPS_PER_LAUNCH caps it, default 5000).
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
     const double threshold_kpc = threshold_pc / 1000.0;
     const int C = MC_N_ISO_CLONES;
     const size_t batch = (size_t)env_int("NOSTOS_BATCH_STARS", 2000);
-    const int steps_per_launch = env_int("NOSTOS_STEPS_PER_LAUNCH", 500);
+    const int steps_per_launch = env_int("NOSTOS_STEPS_PER_LAUNCH", 5000);  // upper bound; actual slices adapt (nostos_gpu.h)
 
     size_t start = 0;
     FILE *cp = boinc_fopen("nostos_checkpoint", "r");

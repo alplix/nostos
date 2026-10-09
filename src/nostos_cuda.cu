@@ -43,13 +43,20 @@ extern "C" int ng_cuda_run(const NgBatch *b, int steps_per_launch, double *out_m
     CK(cudaMemcpy(d_params, b->params, sizeof(double) * NG_NPARAMS, cudaMemcpyHostToDevice));
     const int threads = 128;
     const int blocks = (n + threads - 1) / threads;
-    for (int s = 0; s < b->n_steps; s += steps_per_launch) {
-        int k = b->n_steps - s < steps_per_launch ? b->n_steps - s : steps_per_launch;
+    int slice = NG_FIRST_SLICE < steps_per_launch ? NG_FIRST_SLICE : steps_per_launch;
+    int launches = 0;
+    for (int s = 0; s < b->n_steps; ) {
+        int k = b->n_steps - s < slice ? b->n_steps - s : slice;
+        double t0 = ng_now();
         ng_steps<<<blocks, threads>>>(d_star, d_iso, d_state, d_best, d_params, b->dt, s, k, n);
         CK(cudaGetLastError());
         CK(cudaDeviceSynchronize());
-        if (progress) progress(s + k, b->n_steps, user);
+        s += k;
+        slice = ng_next_slice(k, ng_now() - t0, steps_per_launch);
+        launches++;
+        if (progress) progress(s, b->n_steps, user);
     }
+    fprintf(stderr, "nostos_cuda: %d pairs, %d launches, last slice %d steps\n", n, launches, slice);
     double *best = new double[2 * (size_t)n];
     cudaError_t e = cudaMemcpy(best, d_best, sizeof(double) * 2 * n, cudaMemcpyDeviceToHost);
     if (e == cudaSuccess) {
