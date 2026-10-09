@@ -15,6 +15,9 @@
 //   I x,y,z;x,y,z;...            ISO path, pc, one point every TRACK_STEP_MYR from now
 //   S id dmin dmean d05 d50 d95 t05 t50 t95 v05 v50 v95     pc, Myr (negative = past), km/s
 //   P id x,y,z;...               the star's path, same spacing, until a little after the encounter
+//   C id x,y,z,vx,vy,vz;...      per clone at its closest approach: the object's position (pc) and
+//                                velocity (km/s) relative to the star, Galactic axes (close-up view)
+//   G x,y,z;...                  the Sun's own Galactocentric path (pc), for the Galaxy view
 //   # done N
 #include <math.h>
 #include <stdio.h>
@@ -104,8 +107,14 @@ int main(void) {
     sample_path(&mw, iso_state, total_time, n_steps, every, n_track, path);
     printf("I ");
     print_path(path, sun, n_track);
+    printf("G ");
+    for (int k = 0; k < n_track; k++) {
+        printf("%s%.0f,%.0f,%.0f", k ? ";" : "", sun[k].x * 1000.0, sun[k].y * 1000.0, sun[k].z * 1000.0);
+    }
+    printf("\n");
 
     double d[MC_N_ISO_CLONES], t[MC_N_ISO_CLONES], v[MC_N_ISO_CLONES];
+    Vec3 rel_pos[MC_N_ISO_CLONES], rel_vel[MC_N_ISO_CLONES];
     for (size_t s = 0; s < n_stars; s++) {
         PhaseSpace star;
         astrometry_to_galactocentric(stars[s].astrometry, &solar_params_default, &star);
@@ -121,6 +130,8 @@ int main(void) {
             d[c] = r.min_distance_kpc * 1000.0;
             t[c] = r.time_at_min_myr;
             v[c] = nostos_kpcmyr_to_kms(v3_norm(v3_sub(r.star_vel_at_min, r.iso_vel_at_min)));
+            rel_pos[c] = v3_scale(v3_sub(r.iso_pos_at_min, r.star_pos_at_min), 1000.0);
+            rel_vel[c] = v3_scale(v3_sub(r.iso_vel_at_min, r.star_vel_at_min), NOSTOS_KMS_PER_KPCMYR);
             dsum += d[c];
             if (d[c] < dmin) dmin = d[c];
         }
@@ -143,6 +154,12 @@ int main(void) {
         sample_path(&mw, st, total_time, n_steps, every, n, path);
         printf("P %llu ", (unsigned long long)stars[s].source_id);
         print_path(path, sun, n);
+        printf("C %llu ", (unsigned long long)stars[s].source_id);
+        for (int c = 0; c < MC_N_ISO_CLONES; c++) {
+            printf("%s%.2f,%.2f,%.2f,%.1f,%.1f,%.1f", c ? ";" : "", rel_pos[c].x, rel_pos[c].y, rel_pos[c].z,
+                   rel_vel[c].x, rel_vel[c].y, rel_vel[c].z);
+        }
+        printf("\n");
         fflush(stdout);
     }
     printf("# done %zu\n", n_stars);
