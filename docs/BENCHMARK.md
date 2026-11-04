@@ -1,0 +1,329 @@
+# Benchmarking Nostos (`scripts/bench/`)
+
+How to measure whether a change makes Nostos faster and whether it keeps the results, the scripts that do it, and a
+place for the results. The method is the one the Kampylos app uses for its speed work (its document lives in that
+repository, so the rules are repeated here, adapted to this app). The scripts build the real BOINC wrappers
+(`src/main_nostos_boinc.cpp`, `src/main_nostos_gpu_boinc.cpp`) against a small fake BOINC runtime
+(`scripts/bench/boinc_stub`) and run them on fixed work units. Written 2026-11-04.
+
+**Status: nothing here has been built or run yet.** The scripts and the fake runtime were written on 2026-11-04 from
+the code and from `scripts/build_boinc_all.sh` and `scripts/build_gpu_server.sh`, and checked only by reading and by
+syntax checks. The first run may need small fixes. Every duration below is an estimate and says so; the Results
+section is empty.
+
+## Method
+
+### Two kinds of speed change
+
+* **Same results**: build flags, link mode, allocator, GPU batch and launch sizes, and rewrites that do the same
+  floating-point operations on the same values in the same order, only not twice (using a value that was already
+  computed). The result file `out` must stay byte-identical to the old build's on the same toolchain. Such a change
+  needs a measured gain, the output check and the correctness checks below, nothing more. `out` prints distances with
+  six decimals, far fewer digits than a double has, so a change that touches arithmetic is checked with `EXACT=1`
+  (17 digits) on the profile `quick`.
+* **Result-changing**: anything that changes a number or a row: other or fewer `pow` calls or a rewritten formula,
+  contraction into fused multiply-adds or fast-math, another step count, window or clone count, another RNG, seed or
+  draw order, skipping stars or clones after a screen. Measure it the same way and treat it as a science change that the
+  maintainers decide on: the server compares the two results of a quorum (`server/nostos_compare.sh`, not in this
+  repository; whether it tolerates last-digit differences is the open question NOS-013), may mix app versions, and re-runs
+  every found star with `nostos_detail`, whose distances must equal the volunteers' (728ea35). Until it is decided,
+  keep such a change behind a compile-time switch that is off by default, and record the measured effect in the issue
+  and in `NOTES_method_selection.md` (AGENTS.md, "Conventions for changes").
+
+### Rules for every measurement
+
+1. **Build both sides the same way, from clean copies.** The baseline is a git ref (`REF=upstream/main`) built with the
+   documented build lines (`scripts/build_boinc_all.sh`: `-O2`, `-std=c99` for the C modules); the candidate is the
+   working tree, or the baseline plus a patch. `build_variant.sh` copies the tracked files, so a stale object file or a
+   scratch file in the working tree cannot leak in. (A new file of the candidate must be `git add -N`ed, or it is not
+   copied.) Both sides link the same fake BOINC runtime.
+2. **Find out where the time goes first.** Sample a run (`sample <pid> 10` on macOS, `perf record -g` on Linux) and, for
+   a GPU app, split the kernel time from the host time. A change saves at most the share of time it touches: a change
+   to 10 % of the time cannot gain more than 1.11x.
+3. **Use a profile that exercises the change.** A change that skips work on far stars does nothing on `quick` (every
+   star is written to `out` there, so none is skipped) and shows on `short` and `cpu-wu`; a change to arithmetic is
+   checked on `quick` with `EXACT=1`; a change to GPU batching needs `gpu-batch` or more stars. Confirm the final
+   number on a whole work unit (`cpu-wu`).
+4. **Interleave and repeat.** `run_bench.sh` runs A B C A B C ... in fresh directories; use at least 3 rounds. The load
+   from other programs changes over minutes, and interleaving makes it hit every build alike. Compare medians.
+5. **Accept by the rule, not by eye.** A candidate is faster when its median is at least 5 % below the baseline's and
+   its slowest run beats the baseline's fastest, or when its median is at least 10 % below. Anything else is "no clear
+   gain" and is reported as that.
+6. **Check the output of every run.** Each run's whole `out` is hashed: the rows `source_id min_pc mean_pc t_myr` and
+   the trailer `# done <n_stars>`, nothing in it is a time, a host or a version. `same output` means every run of a
+   label matches the baseline; a run whose last line is not `# done <n_stars>` fails. Compare like with like: other
+   compilers, operating systems and libm (`pow`, `log`, `cos` of glibc, Apple, the CUDA and OpenCL built-ins) differ at
+   the last digits (NOS-013), so a Linux GCC build is compared with a Linux GCC build and a CUDA build with a CUDA build.
+7. **Measure on a quiet machine.** Pause the BOINC client (CPU and GPU tasks, Nostos tasks included) and other heavy
+   programs, keep a laptop on power, and look at `uptime` (the scripts record the load). On a loaded machine an
+   interleaved comparison is still fair, but its absolute times and spreads are not worth quoting.
+8. **Write it down.** Date, machine, OS, compiler, load, profile, rounds, medians and spread, verdict and output go into
+   the results below. A number in a commit message, a README or a code comment comes from there, and a platform that
+   was not measured is called unmeasured.
+
+### Steps for one change
+
+1. Sample the current build on the profile closest to production (`short`, or `cpu-wu`) and note where the time goes.
+2. Make the change in the working tree, or as a patch (`build_variant.sh <name> <patch>`; `git diff > x.patch` makes one);
+   build the baseline with `REF=`.
+3. Run one round on `quick` with `EXACT=1` (`scripts/bench/mac_ab.sh 1 quick`) to see that the output stays the same.
+4. Run 3 or more rounds on a quiet machine on each profile the change touches (`mac_ab.sh 3 short`), and a whole work
+   unit (`cpu-wu`) for the final number.
+5. Run the correctness checks: `make test PYTHON=python3` and the tests that AGENTS.md routes the touched files to; for
+   a change in the orbit code also the kernel mirror (`src/nostos_kernel_body.h`, then `python3 scripts/embed_kernel.py`)
+   and a `cmp` of `out` between a CPU and a GPU build. There is no kill-and-resume test for the wrappers (see "What the
+   suite does not cover").
+6. Measure other platforms where possible: the same two scripts on Linux (GCC, static, as the release build), and the
+   CUDA and OpenCL builds on a machine with the GPU. Name the platforms that were not measured.
+7. Record the results here, and update the build lines in AGENTS.md and `scripts/build_*.sh` when the way to build changes.
+
+### Traps carried over from the Kampylos measurements
+
+These were seen with Kampylos on the same kind of Mac; Nostos has not been measured yet, but the causes are not specific
+to either app.
+
+* Other programs: on an M1 the same build varied by up to 40 % between rounds at load 5 to 30, and a BOINC task on the
+  same GPU doubled a GPU run.
+* Efficiency cores: `taskpolicy -b` (background QoS) puts a process on the efficiency cores of Apple Silicon, `nice` does
+  not, and the BOINC client's way of lowering priority decides which a volunteer's Mac does. `RUN_PREFIX` compares both.
+* Containers on a Mac run on the same cores and share their load: good for ratios between Linux builds, not for
+  comparing Linux with macOS.
+
+## One command on a Mac
+
+```
+scripts/bench/mac_ab.sh              # 3 rounds of the profiles quick and short
+scripts/bench/mac_ab.sh 5 short      # 5 rounds of one profile
+scripts/bench/mac_ab.sh 1 cpu-wu     # one production-sized work unit per build, about 2 hours
+EXPERIMENTS=1 scripts/bench/mac_ab.sh 3 short   # also BASE_REF with -O3 and with -O2 -flto
+NEW_OPT="-O2 -flto" scripts/bench/mac_ab.sh     # the working tree with other flags
+EXACT=0 scripts/bench/mac_ab.sh      # production output format (6 decimals) instead of 17 digits
+```
+
+It needs the Xcode command line tools (or `gcc` and `g++`), `python3` and `git`; no BOINC checkout. It builds, in
+`~/nostos-work`, the baseline `upstream/main` (or `origin/main`; `BASE_REF=` picks another ref) the documented way
+(`-O2`, the build lines of AGENTS.md "Building" and `scripts/build_boinc_all.sh`) and this working tree with `NEW_OPT`
+(default the same `-O2`), then runs each profile. On an unchanged tree the two builds are identical, so the table is an
+A/A comparison: it shows the noise of this machine, and what a "no clear gain" looks like. Each profile ends with a table
+like this one (`~/nostos-work/bench-runs/<date>-<profile>/summary.txt`); the numbers are placeholders for the format,
+not a measurement:
+
+```
+label        runs  median s    min s    max s    cpu s  RSS MB  GPU%   vs 1st  verdict / output
+cpu-base        3       M0       ..       ..       ..      ..     -   1.000x  baseline; same output
+cpu-new         3       M1       ..       ..       ..      ..     -   M0/M1x  <ACCEPT | no clear gain | slower> (+x %); same output
+```
+
+`verdict` applies the rule of Rule 5. `same output` means every run of that label wrote the same `out` as the baseline,
+`same output as X` the same as an earlier label (a CUDA build after CPU builds is compared with the CUDA build before
+it, not with the CPU ones); otherwise the column shows how far the closest `min_pc` of the work unit moved.
+`GPU%` is only filled with `GPU_SAMPLE=1`.
+
+On Linux, and for the GPU apps, use the two scripts directly (`build_variant.sh` builds `cpu`, plus `cuda` when `nvcc` is
+in `PATH` and `opencl` when `CL/cl.h` is installed):
+
+```
+REF=upstream/main scripts/bench/build_variant.sh base       # ~/nostos-work/bins/base/{cpu,cuda,opencl}
+scripts/bench/build_variant.sh new                          # this working tree
+scripts/bench/run_bench.sh short 3 base=$HOME/nostos-work/bins/base/cpu new=$HOME/nostos-work/bins/new/cpu
+scripts/bench/run_bench.sh gpu-batch 3 base=$HOME/nostos-work/bins/base/cuda new=$HOME/nostos-work/bins/new/cuda
+```
+
+## The pieces
+
+| file | what it does |
+|---|---|
+| `build_variant.sh <name> [patch ...]` | copies the tracked files (or `REF=<git ref>`), applies patches, compiles the C modules with `-std=c99` and the wrapper as `scripts/build_boinc_all.sh` does, links the fake BOINC runtime, and writes `bins/<name>/cpu` (and `cuda`, `opencl`: see below) with a `.info` file of how it was built. `OPT`, `CC`, `CXX`, `ALLOC`, `STATIC`, `EXACT` are the knobs (`build_variant.sh` without arguments lists them) |
+| `run_bench.sh <profile> <rounds> label=binary ...` | makes the input, then interleaved runs in fresh directories: wall, user and system time, peak memory, a hash of `out`, and the closest `min_pc` of the run. `RUN_PREFIX` runs every binary through a command (`taskpolicy -b`, `nice -n 19`) |
+| `summarize_bench.py <results.tsv>` | the table above |
+| `make_bench_wu.py <profile.wu> <file>` | writes the input `in` of a profile; used by `run_bench.sh`, the md5 of its result goes into the results file |
+| `profiles/*.wu` | number of stars, how many are real, seeds, window, steps, threshold of one work unit |
+| `boinc_stub/` | the fake BOINC runtime: `boinc_api.h`, `filesys.h`, `boinc_stub.cpp` (what differs from the real library is in the comment at the top of the `.cpp`) |
+| `mac_ab.sh` | everything above in one command |
+
+The backends. **CPU**: built and run on macOS arm64 and on Linux. **CUDA**: built only where `nvcc` is found (Linux); the
+line is `scripts/build_gpu_server.sh`'s, for the card's own architecture (`-arch=native`; `CUDA_GENCODE` overrides).
+**OpenCL**: built only where `CL/cl.h` is found (Linux, or `BACKENDS=opencl` by hand); it runs only on a GPU with fp64.
+There is **no Metal app**, and a Mac cannot run the GPU apps: Apple's GPUs have no fp64, and the apps refuse a device
+without it (`src/nostos_opencl.c:52-55`). So on the M1 only the CPU app is measured, and the GPU backends are a gap:
+`build_variant.sh` and the `gpu-batch` profile are written for them from the release build scripts and have not been
+built or run anywhere.
+
+The work units. The Gaia data of a real work unit is not in the repository, so `make_bench_wu.py` makes the stars, from a
+fixed seed with integer arithmetic only (the same bytes on every machine and Python version), and puts two real stars in
+front: HIP 3757 and HD 292249, whose Gaia astrometry is in `tests/test_pipeline_oumuamua_hip3757.c`. The header
+(elements, covariance, window, steps) is written by `scripts/make_work_units.py`'s own writer, so the profiles follow
+that file. Time per star does not depend on the star (every star runs 100 clones for 100,000 steps, without an early
+exit), so made-up stars cost what real ones cost. What the data does decide is which stars come under the distance
+threshold and are written to `out`: with the production threshold of 50 pc a random star never does, and the two real
+ones do, as in a real work unit where most chunks return a trailer and a few rows. All profiles use 'Oumuamua's elements
+and covariance (the only ISO `make_work_units.py` has) and `seed_base` 1; they share `star_seed`, so each profile
+starts with the stars of the shorter ones. The times below are estimates from the 2.3-2.6 s per star of the 2026-10
+reports (`NOTES_method_selection.md`: 23.05 s for 10 stars on the reference server, 15.4 s for 6 stars on a PC), not
+measured on an M1.
+
+| profile | stars | threshold | apps | estimated run | why |
+|---|---|---|---|---|---|
+| `quick` | 12 (2 real) | 100000 pc: every star is written | CPU | about 30 s on an M1 | smoke test, and the output check for arithmetic changes: the hash covers all numbers of all 12 stars (with `EXACT=1`, every digit) |
+| `short` | 40 (2 real) | 50 pc | CPU | about 100 s on an M1 | the standard A/B: long enough for a median, the production output shape (2 rows and the trailer), shows a gain from skipping far stars |
+| `cpu-wu` | 1500 (2 real) | 50 pc | CPU | about 1 hour on an M1 | one production CPU work unit (AGENTS.md: 1500 stars, about 2.5 s per star); the final number, once per candidate |
+| `gpu-batch` | 2000 (2 real) | 50 pc | CUDA, OpenCL | a minute or two on a mid-range GPU (code comment) | one full batch of the GPU apps (`NOSTOS_BATCH_STARS` 2000, 200,000 star-clone pairs); the release GPU work unit is ten of these |
+
+## Where the time is expected to go (expected, not measured)
+
+Read from the code; nothing has been sampled yet. Rule 2 says to sample first.
+
+* **CPU app: `milkyway_accel()`, almost all of it.** One star is 100 clones x 100,000 steps; one step is two
+  `leapfrog_step()` calls (star, clone) and each calls `potential_acceleration()` twice (`src/integrator.h:21`,
+  `src/encounter.c`). That is 4 x 100,000 x 100 = 4.0e7 acceleration calls per star, plus one `sqrt` for the distance per
+  step. At the reported 2.3-2.6 s per star that is 58-65 ns per call, which fits what one call does (`src/potential.c`):
+  3 `pow` (the bulge's `pow(.., 1.5)` at line 71, two in the halo's `halo_enclosed_GM` at line 57), 4 `sqrt` (`R`, `r`,
+  the disk's `zeta` and `D`) and 9 divisions, called through a function pointer from another translation unit. Expected
+  split of a call, to be checked: the three `pow` the largest share, then the divisions and square roots, the indirect
+  call and `Vec3` copies a small share.
+* **Everything else is invisible on the CPU app.** Per star: 300 Gaussian draws (Box-Muller: `log`, `sqrt`, `cos`), one
+  3x3 Cholesky and one coordinate conversion, tens of microseconds against seconds. Per task: parsing `in`
+  (`fscanf` per star), the ISO's start state, a checkpoint file write once per client period, a few output rows. The
+  allocator is not involved (one `realloc`-grown star array). Peak memory is a few hundred KB.
+* **GPU apps: the kernel, `ng_steps()` in `src/nostos_kernel_body.h`**, the same arithmetic in fp64, one thread per
+  (star, clone) pair, so the same 4 calls per step. Consumer GPUs run fp64 at a small fraction of their fp32 rate, so
+  the batch is bound by fp64 `pow`, `sqrt` and division. The host side per batch of 2000 stars is the draw of 200,000
+  clones (600,000 Gaussians, tens of milliseconds, single-threaded), filling and uploading about 20 MB, and the reduction
+  per star; the kernel takes a minute or two. Slices of about 0.25 s each end with a synchronisation
+  (`ng_next_slice()`), at most 5000 steps per launch, so at least 20 launches per batch and an idle gap of tens of
+  microseconds between them: well under 1 %. The host thread probably spins while it waits (CUDA's default
+  `cudaDeviceSynchronize`), so a GPU run's CPU time is not the host's work.
+* **The star's own trajectory is computed 100 times per star**, once per clone, though it is the same every time (the
+  bodies do not attract each other). That is half of all acceleration calls. And inside a step the acceleration at the
+  end of one step is computed again at the start of the next. Together this is the source of the first two candidates
+  below.
+
+## Candidate speed-ups, in the order to measure them
+
+Ranked by expected gain and by how little a decision they need. Each says whether it keeps the results.
+
+1. **Integrate the star once per star, not once per clone. Same results.** `find_closest_approach()`
+   (`src/encounter.c`) advances the star and the clone together; the star's state is identical for all 100 clones.
+   Store the star's positions (100,001 x 3 doubles, 2.4 MB) when the first clone runs, and have the other 99 compare
+   against them. The arithmetic and its order are unchanged, so `out` is byte-identical. Expected: about 2x on the CPU
+   app (2 of the 4 calls per step per clone go away). `mc_search_stage1()` is the only caller on the app's path; the
+   other callers (`scan_logic.c`, `nostos_detail.c`, tools) keep the old function. Not directly available to the GPU
+   apps, where each thread owns one pair: sharing a trajectory across the 100 threads of a star needs another
+   decomposition of the kernel, a design question, not a quick patch.
+2. **Carry the end-of-step acceleration into the next step. Same results.** `leapfrog_step()` computes `a1` at the
+   new position and the next step computes `a0` at the same position: the same function of the same value, so reuse
+   cannot change a bit (on builds that do not fuse operations differently; the hash decides). Expected: about 2x on the
+   CPU app, and with item 1 about 4x (1 call per clone-step instead of 4). The same change applies to the kernel body
+   (`ng_leapfrog`), which halves the GPU's work: keep the acceleration in registers within a slice and recompute it
+   once at the start of each slice, so the checkpointed state does not grow. `src/integrator.h` is a copy shared with
+   other apps (NOS-020): do it in `find_closest_approach()` or change every copy together. The kernel must mirror the CPU
+   arithmetic operation by operation (AGENTS.md "Invariants"), then `embed_kernel.py`, then a CPU against GPU `cmp`.
+3. **Let the compiler see the potential: `-flto`, or one translation unit for the C modules. Same results if nothing
+   is fused differently.** `milkyway_accel()` is called through a function pointer from another file, so without
+   link-time optimisation it cannot be inlined into the step loop. `EXPERIMENTS=1 mac_ab.sh` measures `-flto`.
+   Expected: 5-15 % on the CPU app, and relatively the same after items 1 and 2.
+4. **Other flags: `-O3`, a newer instruction set. Same results only if the compiler does not contract.** GCC with
+   `-std=c99` and Apple clang 14 emit no fused multiply-adds for this code, upstream clang does by default
+   (`-ffp-contract=on`) and then gave other output (NOS-013); `-O2 -ffp-contract=off` keeps it safe. A build for the
+   host's own CPU (`-march=native`) cannot be shipped, since volunteers' CPUs differ. Expected: under 5 % (scalar code
+   around libm calls); listed because it is one line to try. `EXPERIMENTS=1` measures `-O3`.
+5. **Fewer `pow` calls. Result-changing at the last bits.** `pow(t, 1.5)` equals `t * sqrt(t)` mathematically and the
+   halo's `x^gamma` equals `x * x^(gamma-1)`, so the three `pow` of a call could become one. Expected: 1.3-1.7x per call
+   if the `pow` are the largest share of a call, to be checked by sampling. Every acceleration then differs in its last bits, so
+   printed digits of some rows move and rows at the 50 pc threshold can appear or vanish (NOS-013), `nostos_detail`'s
+   re-run and quorums with older app versions are affected, and the GPU kernel has to follow. Needs the maintainers'
+   decision; measure how many rows of `cpu-wu` change and by how much, behind a compile switch.
+6. **Skip the clones of stars that cannot be reported. Result-changing in principle.** The app runs all 100 clones for
+   every star, but writes only stars whose closest clone is under the threshold, which almost no star is. Running one
+   clone first and the rest only when it comes within a margin of the threshold (or the straight-line screen of
+   `src/gaia_scan.c`) would skip about 99 % of the work for a typical star. The rows written stay the same as long as the
+   margin is safe, which has to be shown on real chunks (the spread of the 100 clones is set by the covariance, about
+   0.02 km/s per axis, i.e. about 2 pc over 100 Myr, small against 50 pc, but not proven for every star), and a wrongly
+   skipped star is a missing row. The largest gain of this list and a method decision: measure on `short` and `cpu-wu`
+   only, since `quick` reports every star and would show no gain.
+7. **Vector instructions across clones. Result-changing unless `pow` stays scalar.** Add, multiply, divide and `sqrt`
+   give identical results in vector form; libm has no vector `pow` that matches the scalar one bit for bit. Little to gain
+   while `pow` is a large share; revisit after item 5.
+8. **GPU scheduling: `NOSTOS_BATCH_STARS`, `NOSTOS_STEPS_PER_LAUNCH`, the block size (128 CUDA, 64 OpenCL).
+   Same results** (the code says that splitting steps does not change a result). Expected to matter little because the
+   kernel dominates, except where registers spill (a `double` array per thread) or a GPU is shared. GPU machine only.
+9. **Allocator, static against dynamic linking, `CXXSTD`. Same results.** Expected: nothing. `ALLOC=jemalloc` and `STATIC=0`
+   exist to show that.
+
+Not a candidate for volunteers' throughput: threads inside one task. BOINC runs one task per core, so a second
+thread per task shortens one task and not the work done per hour.
+
+## Traps specific to Nostos
+
+* **Determinism.** A run of one binary on one work unit writes the same `out` every time, so any difference between two
+  runs of a label is a real finding (the summary says "results differ between its own runs"). Between builds it holds
+  only on the same compiler, flags, libm and OS (NOS-013); a Linux hash is never compared with a macOS hash. `out` is
+  six decimals of pc: a change of 1e-12 relative in a distance almost never changes it, so a "same output" at the
+  production format does not prove "same arithmetic". Use `EXACT=1` for that, on `quick`, where every star's three
+  numbers are in `out`. On `short` and `cpu-wu` only the two real stars are, and a change that alters other stars'
+  numbers is invisible there.
+* **The threshold hides or shows work.** The profile threshold decides which rows exist. `quick` raises it to 100,000 pc so
+  that every star is written (a star's closest approach is never larger than its separation from the ISO at the start,
+  and the made-up parallaxes of 1-20 mas put every star within a kiloparsec); the other profiles use the production 50 pc. Do not compare a `quick` time with a `short` time
+  as if the work differed: it does not.
+* **RNG seeds.** Every clone is drawn from `combine_seed(seed_base, source_id)` in clone order (`src/nostos_io.c`,
+  `src/montecarlo.c`), so a change of `seed_base`, of the star list or of the order of draws changes every result. The
+  profiles fix both; the md5 of the generated `in` is in the header of every `results.tsv`. If two sessions show
+  different md5s for one profile, `scripts/make_work_units.py` (elements, covariance, format) or the generator changed,
+  and their results are not comparable. A change of the clone count or of the draw order is a result-changing change.
+* **Checkpoints.** The CPU app writes `nostos_checkpoint` after a star when the stub says it is time (every 60 s by default,
+  `NOSTOS_STUB_CHECKPOINT_SECONDS`), the GPU app after every batch whatever the clock says (NOS-003). Every run starts in
+  a fresh directory without a checkpoint, so it never resumes; a leftover `nostos_checkpoint` would make the app skip
+  the first stars and append to an old `out`. A change to checkpointing (NOS-001 to NOS-003, NOS-010) cannot be judged
+  here: the stub does not kill, and a kill would not flush stdio the way the real client's quit does
+  (`docs/kb/shared/boinc-api.md`, PAT-002).
+* **GPU sharing.** The kernel slices (`ng_next_slice`) follow the time one launch takes, so a GPU that another task or the
+  desktop also uses runs with shorter slices and the whole batch takes longer, without changing a result. Measure GPU apps
+  on a GPU that nothing else uses (pause the BOINC client's GPU tasks, no display on it where the driver has a watchdog,
+  NOS-012). `GPU_SAMPLE=1` records the utilisation as a check of that. A host thread that spins in `cudaDeviceSynchronize`
+  makes the CPU column of a GPU run look like work.
+* **Thread counts.** Both apps are single-threaded and the stub reports no CPU budget; nothing here depends on core
+  count. The client runs one task per core, so on a machine with simultaneous multithreading two tasks may share one
+  core's floating-point units and each run slower than alone; `run_bench.sh` runs one at a time. A gain in the number of
+  `pow` calls may weigh differently there.
+* **The task's fixed costs.** The real `boinc_finish()` waits 2 s (`docs/kb/shared/boinc-api.md`); the stub does not, so
+  a run here is 2 s shorter than a task, about 7 % of `quick` and 0.06 % of `cpu-wu`.
+* **Long runs.** A fanless laptop may throttle during `cpu-wu`; interleaving spreads that over both sides but does not
+  remove it. Look at the spread, not only the median.
+
+## What the suite does not cover
+
+* GPU apps on a Mac (not possible: no fp64), and any GPU measurement at all until someone runs `build_variant.sh` and
+  `gpu-batch` on a machine with a card. The CUDA and OpenCL build lines in `build_variant.sh` are untested, and the CUDA
+  one builds for one architecture, not the release list of sm_50 to sm_120 (a binary for the card in use runs the same
+  code).
+* Windows, Android, 32-bit x86 and the other release targets; the release builds themselves (`scripts/build_boinc_all.sh`
+  needs the build server, NOS-015).
+* The real BOINC library: the fake runtime has no timer thread, no suspend, quit or abort, no low-priority setting, and
+  `boinc_finish()` exits at once (comment in `boinc_stub/boinc_stub.cpp`).
+* Checkpoint and resume (no kill harness exists for the wrappers), the quorum compare, the validator, `nostos_detail`
+  and the other server-side programs (`src/nostos_detail.c` has no build target), the data scripts, `tools/`, and
+  `src/gaia_scan.c`, which has its own, different hot loop.
+* Many tasks at once, as on a volunteer's machine (shared caches, simultaneous multithreading, thermal limits).
+* The science: that a faster build finds the same encounters is shown only by `out` on these work units.
+* Real Gaia chunks: the made-up stars cost what real ones cost but are not the distribution of a real chunk, so a
+  change that skips work by screening (candidate 6) needs a run on real chunks before anyone relies on its gain.
+
+## Results
+
+Empty: nothing has been measured. One section per measurement session, newest first, in this form.
+
+```
+### <date>: <change or question> (<machine>)
+
+Machine: <chip, cores, RAM>, <OS version>, <compiler --version>, power, BOINC client paused (yes/no), load before the
+run (the `# load:` line of results.tsv).
+Builds: base = <ref and commit, OPT>; new = <working tree at commit, patch, OPT>; EXACT=<0|1>; the `.info` files of
+bins/<name>/.
+Profile: <name>, rounds <n>, RUN_PREFIX <none|taskpolicy -b|nice -n 19>, md5 of `in` (from results.tsv).
+
+<the table of summary.txt>
+
+Verdict: <by the rule>. Output: <same | other, how far>. Where the time went: <sample result>. Not measured: <platforms,
+backends, profiles>.
+```

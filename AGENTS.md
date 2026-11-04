@@ -45,6 +45,7 @@ stars (commit messages of 1ecc658 and dea832d).
 | `scripts/list_gaia_bulk.py`, `scripts/download_filter_6d.py` | list and download the Gaia DR3 bulk files, keep rows with a radial velocity |
 | `scripts/make_work_units.py`, `scripts/make_star_catalog.py` | work-unit input files; the compact star catalogue the server cuts work units from (both apply the parallax zero-point) |
 | `scripts/embed_kernel.py` | regenerates `src/nostos_kernel_cl.inc` |
+| `scripts/bench/` | speed A/B of builds on fixed work units, against a fake BOINC runtime (`boinc_stub/`, for these scripts only): `mac_ab.sh` does it all on a Mac, `build_variant.sh`, `run_bench.sh`, `summarize_bench.py`, `make_bench_wu.py`, `profiles/`; method, expected hot spots and results in `docs/BENCHMARK.md` |
 | other `scripts/` | scan post-processing (`summarize_candidates.py`, `make_shortlist.py`, `prepare_mc_shortlist.py`, `rank_mc_shortlist.py`, `scan_worker.sh`) and cross-checks against astropy, galpy and the official zero-point package |
 | `docs/kb/` | knowledge base (below) |
 
@@ -177,6 +178,9 @@ What to run for which change:
   `out` with the previous build's. For checkpoint changes, stop and restart with a quit that flushes (a BOINC client, or a stub that calls
   `fflush(NULL)`), not with SIGKILL (PAT-002).
 * shared copies: the same change in phygas (and planodia for `cl_dynload`).
+* a speed change: the method in `docs/BENCHMARK.md`: `scripts/bench/mac_ab.sh`, or `build_variant.sh` with `REF=` and
+  `run_bench.sh`, against the old build; a gain claimed only by its rule, `same output` shown (`EXACT=1` on `quick` when
+  the arithmetic changed) or the change explained as a science change; then the tests above for the files touched.
 
 ## Environment notes
 
