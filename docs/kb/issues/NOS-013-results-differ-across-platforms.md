@@ -74,3 +74,4 @@ change.
 - 2026-10-27: re-checked after the pattern was corrected (count FMA instructions instead of reasoning from compiler
   versions): counted with GCC 13.2 and Apple clang 14 on arm64; the Apple clang result explains why the macOS build
   matched. Status unchanged.
+- 2026-11-04: measured on an Apple M4 Pro (docs/BENCHMARK.md, Results): at 17 digits on quick, Linux arm64 GCC 12, Linux x86_64 GCC 12 and Windows MinGW-w64 GCC 16 write the same out; Apple clang 21 and Debian clang 14 differ (74 of 200 rows of a 200-star check); Apple clang 21 with -ffp-contract=off writes exactly the GCC out at no speed cost. A fix for the clang targets (macOS, llvm-mingw, Android) is -ffp-contract=off in their build lines; not applied (build server, and it moves those builds' rows).

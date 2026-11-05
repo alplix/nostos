@@ -1,0 +1,16 @@
+# One full batch of the GPU apps: 2000 stars, NOSTOS_BATCH_STARS' default, so the app runs one batch of 200,000 star-clone
+# pairs, about a minute or two on a mid-range GPU (comment in src/main_nostos_gpu_boinc.cpp). The production GPU work
+# unit is 20,000 stars, ten such batches; one batch exercises the same code and is quick enough to repeat. For the CUDA
+# and OpenCL builds of build_variant.sh only: on the CPU app it would take about 1.5 hours, and a Mac cannot run the
+# GPU apps (they need fp64, Apple's GPUs have none), so mac_ab.sh skips it. Production threshold, two real stars. A
+# change of the batch size or the kernel slice length (NOSTOS_BATCH_STARS, NOSTOS_STEPS_PER_LAUNCH, set in a wrapper
+# script that is the label's binary) needs more stars than one batch to show anything: copy this file and raise stars.
+iso oumuamua
+stars 2000
+anchors 2
+star_seed 20261104
+seed_base 1
+time_myr -100
+steps 100000
+threshold_pc 50
+apps gpu
