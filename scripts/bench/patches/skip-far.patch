@@ -1,0 +1,60 @@
+--- a/src/mc_search.c
++++ b/src/mc_search.c
+@@ -1,6 +1,13 @@
+ #include "mc_search.h"
+ #include <math.h>
+ #include <stdlib.h>
++
++#ifdef NOSTOS_SKIP_MARGIN_PC
++// Experiment (scripts/bench/patches/skip-far.patch): the work unit's threshold, set by the CPU app's main. A star
++// whose closest approach to the ISO's mean orbit stays farther than threshold + NOSTOS_SKIP_MARGIN_PC skips its 100
++// clones; such a star is not written, as long as no clone comes closer than the mean orbit by more than the margin.
++double nostos_skip_threshold_kpc = INFINITY;
++#endif
+ 
+ // The two helpers below exist for speed only and leave every result bit-identical (2026-11-04, docs/BENCHMARK.md,
+ // "Results"). They live here and not in integrator.h or encounter.c because those files are copies shared with
+@@ -81,6 +88,21 @@
+         }
+     }
+ 
++#ifdef NOSTOS_SKIP_MARGIN_PC
++    if (star_track && nostos_skip_threshold_kpc < INFINITY) {
++        State pilot = {iso_mean.pos, iso_mean.vel};
++        double d_p, t_p;
++        closest_approach_to_track(pot, star.pos, star_track, pilot, total_time_myr, n_steps, &d_p, &t_p);
++        if (d_p > nostos_skip_threshold_kpc + NOSTOS_SKIP_MARGIN_PC / 1000.0) {
++            free(star_track);
++            summary.min_distance_kpc = d_p;
++            summary.mean_min_distance_kpc = d_p;
++            summary.time_at_min_myr = t_p;
++            summary.n_clones_run = 1;
++            return summary;
++        }
++    }
++#endif
+     for (int c = 0; c < MC_N_ISO_CLONES; c++) {
+         double drawn[MC_MAX_DIM];
+         mc_sample_multivariate_gaussian(&rng, mean6, L, 3, drawn);
+--- a/src/main_nostos_boinc.cpp
++++ b/src/main_nostos_boinc.cpp
+@@ -42,6 +42,9 @@
+ #include "potential.h"
+ #include "mc_search.h"
+ #include "units.h"
++#ifdef NOSTOS_SKIP_MARGIN_PC
++extern double nostos_skip_threshold_kpc;   // experiment: scripts/bench/patches/skip-far.patch
++#endif
+ #include "nostos_io.h"
+ }
+ 
+@@ -121,6 +124,9 @@
+     }
+ 
+     double threshold_kpc = distance_threshold_pc / 1000.0;
++#ifdef NOSTOS_SKIP_MARGIN_PC
++    nostos_skip_threshold_kpc = threshold_kpc;
++#endif
+ 
+     for (size_t i = start_index; i < n_stars; i++) {
+         const StarRecord &star = stars[i];

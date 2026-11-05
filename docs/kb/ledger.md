@@ -41,3 +41,6 @@ When code that a row describes changes a lot, check the pattern again and update
 | PAT-028 | not-affected | 2026-10-27 | eb7029e |  | guards in shipped code: NG_CUDA/NG_OPENCL with #error when neither is set (src/main_nostos_gpu_boinc.cpp:34-40); EXPECTED_GPU_VENDOR (default empty, which accepts any vendor: src/nostos_opencl.c:12-14) is defined by every OpenCL build (build_gpu_server.sh:51, 73; build_gpu_opencl_wintest.bat:11); the rest are platform guards (_WIN32, __APPLE__) |
 | PAT-029 | affected | 2026-10-27 | eb7029e | NOS-023 | GPU builds in nvidia/cuda:12.8.1-devel-ubuntu22.04 and ubuntu:22.04 by tag, no digest (scripts/build_gpu_server.sh:59, 61) |
 | PAT-030 | n/a | 2026-10-27 | eb7029e |  | no boinc_temporary_exit() and no deliberate exit without boinc_finish() in src/ (git grep) |
+| PAT-031 | n/a | 2026-11-04 | 4bce441 |  | no thread_local or __thread in src/ (git grep) |
+| PAT-032 | not-affected | 2026-11-04 | 4bce441 |  | hot loop allocates nothing; macOS sample of quick 2026-11-04: pow, milkyway_accel, mc_search_stage1, no allocator |
+| PAT-033 | not-affected | 2026-11-04 | 4bce441 |  | GPU host work per 2000-star batch (clone draws) is tens of ms against minutes of kernel; estimated, not measured |

@@ -34,7 +34,7 @@ stars (commit messages of 1ecc658 and dea832d).
 | `src/coords.c`, `.h` | ICRS astrometry to Galactocentric phase space, solar parameters (copy) |
 | `src/montecarlo.c`, `.h` | seedable RNG, Box-Muller, Cholesky (copy) |
 | `src/orbital_elements.c`, `.h`, `src/iso_solutions.h` | hyperbolic elements to Galactocentric state, inbound asymptote; published solutions of 1I, 2I, 3I |
-| `src/encounter.c`, `.h`, `src/mc_search.c`, `.h` | closest approach of one star and one ISO; stage 1 (100 ISO clones per star) |
+| `src/encounter.c`, `.h`, `src/mc_search.c`, `.h` | closest approach of one star and one ISO; stage 1 (100 ISO clones per star; integrates the star once per star and carries the acceleration between steps, NOS-024) |
 | `src/nostos_io.c`, `.h` | work-unit parser `parse_input_stream()` and `combine_seed()` |
 | `src/star_mc.c`, `.h` | stage 2: star-side resampling from Gaia errors (used by `tools/`) |
 | `src/gaia_scan.c`, `src/scan_logic.c`, `src/csv_range.c`, `src/parallax_zeropoint.c` (and `.h`) | standalone full-catalogue scan tool, not the BOINC app: straight-line screen, gravity confirmation, byte-range split, DR3 parallax zero-point |
@@ -45,6 +45,7 @@ stars (commit messages of 1ecc658 and dea832d).
 | `scripts/list_gaia_bulk.py`, `scripts/download_filter_6d.py` | list and download the Gaia DR3 bulk files, keep rows with a radial velocity |
 | `scripts/make_work_units.py`, `scripts/make_star_catalog.py` | work-unit input files; the compact star catalogue the server cuts work units from (both apply the parallax zero-point) |
 | `scripts/embed_kernel.py` | regenerates `src/nostos_kernel_cl.inc` |
+| `scripts/bench/` | speed A/B of builds on fixed work units, against a fake BOINC runtime (`boinc_stub/`, for these scripts only): `mac_ab.sh` does it all on a Mac, `linux_ab.sh` (Linux, also in a container), `cross_check.sh` (Windows and Linux x86_64 builds under emulation), `build_variant.sh`, `run_bench.sh`, `summarize_bench.py`, `make_bench_wu.py`, `profiles/`, `patches/` (result-changing experiments); method, expected hot spots and results in `docs/BENCHMARK.md` |
 | other `scripts/` | scan post-processing (`summarize_candidates.py`, `make_shortlist.py`, `prepare_mc_shortlist.py`, `rank_mc_shortlist.py`, `scan_worker.sh`) and cross-checks against astropy, galpy and the official zero-point package |
 | `docs/kb/` | knowledge base (below) |
 
@@ -75,6 +76,8 @@ Break one of these and results become silently wrong or stop matching the server
   `--fmad=false`, the OpenCL kernel with `#pragma OPENCL FP_CONTRACT OFF`, 32-bit x86 with `-msse2 -mfpmath=sse`.
   GCC with `-std=c99` and Apple clang 14 emit no fused multiply-adds for this code (counted on 2026-10-27); the
   Android and Windows ARM64 builds (upstream clang) gave different output, probably because they fuse (NOS-013).
+  Measured on 2026-11-04: GCC on Linux arm64, Linux x86_64 and Windows (MinGW-w64) write the same `out` to 17 digits;
+  Apple clang 21 and clang 14 differ, and Apple clang 21 with `-ffp-contract=off` writes the GCC `out` (NOS-013).
 * **ISO elements.** The work unit must carry barycentric elements of the inbound leg (`src/iso_solutions.h`,
   `*_BARY_1600`); `scripts/make_work_units.py` must hold the same numbers (`tests/test_make_work_units.py`).
 * **Copies.** `src/coords.*`, `src/potential.*`, `src/montecarlo.*`, `src/integrator.h`, `src/vec3.h`, `src/units.h`
@@ -177,6 +180,9 @@ What to run for which change:
   `out` with the previous build's. For checkpoint changes, stop and restart with a quit that flushes (a BOINC client, or a stub that calls
   `fflush(NULL)`), not with SIGKILL (PAT-002).
 * shared copies: the same change in phygas (and planodia for `cl_dynload`).
+* a speed change: the method in `docs/BENCHMARK.md`: `scripts/bench/mac_ab.sh`, or `build_variant.sh` with `REF=` and
+  `run_bench.sh`, against the old build; a gain claimed only by its rule, `same output` shown (`EXACT=1` on `quick` when
+  the arithmetic changed) or the change explained as a science change; then the tests above for the files touched.
 
 ## Environment notes
 
