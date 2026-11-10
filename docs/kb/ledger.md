@@ -44,3 +44,4 @@ When code that a row describes changes a lot, check the pattern again and update
 | PAT-031 | n/a | 2026-11-04 | 4bce441 |  | no thread_local or __thread in src/ (git grep) |
 | PAT-032 | not-affected | 2026-11-04 | 4bce441 |  | hot loop allocates nothing; macOS sample of quick 2026-11-04: pow, milkyway_accel, mc_search_stage1, no allocator |
 | PAT-033 | not-affected | 2026-11-04 | 4bce441 |  | GPU host work per 2000-star batch (clone draws) is tens of ms against minutes of kernel; estimated, not measured |
+| PAT-034 | n/a | 2026-11-10 | 1421a2c |  | no work generator or work-unit template in this repository (git grep rsc_fpops: no hits); recent tasks 0.74-0.79 h on the server status page of 2026-11-10, a narrow spread |
