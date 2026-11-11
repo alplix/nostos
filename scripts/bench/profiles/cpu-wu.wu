@@ -1,0 +1,15 @@
+# One production CPU work unit: 1500 stars at the production threshold, what the server's generator sends the CPU app
+# (AGENTS.md, commit message of 1ecc658): about 1 hour per run on an Apple M1 (estimated from 2.3-2.6 s per star, not
+# measured). Run it once per candidate for the final number, or once per side in a long session: three rounds of two
+# builds are 6 hours. Two real stars and 1498 made up, so `out` has two rows and the trailer `# done 1500`. The first 40
+# stars are short.wu's. A laptop may throttle in the second half of an hour, which interleaving spreads over both sides
+# but does not remove.
+iso oumuamua
+stars 1500
+anchors 2
+star_seed 20261104
+seed_base 1
+time_myr -100
+steps 100000
+threshold_pc 50
+apps cpu

@@ -1,6 +1,6 @@
 # nostos: knowledge base index
 
-23 issues: 19 open (15 fix, 4 decide), 1 note(s), 3 closed. Shared patterns here: 14 affected, 1 fixed, 15 clear, 0 unchecked.
+24 issues: 20 open (15 fix, 4 decide, 1 review), 1 note(s), 3 closed. Shared patterns here: 14 affected, 1 fixed, 19 clear, 0 unchecked.
 
 Work from the top: pick an issue, read its file, and its pattern's "How to fix" if it has one. Coding
 agents: `python3 docs/kb/shared/kb.py list --open --action fix` prints the same, one line per issue, and
@@ -40,6 +40,14 @@ Questions for the maintainers, and issues whose fix depends on an answer.
 | [NOS-021] | med | build | Windows CUDA build has no code for GPUs below compute capability 7.5; does the plan class exclude them? | Decide: require compute capability 7.5 and a CUDA 13 driver in the Windows CUDA plan class, or build it with CUDA 12.8? [PAT-024] |
 | [NOS-018] | low | build | scripts/build_boinc_mac.sh is referenced but not in the repository | Maintainers: commit the macOS build script used for the Mac builds, or correct the reference in build_boinc_all.sh:4 |
 
+## Fix written, not merged yet (1)
+
+Review, rebase if needed, merge.
+
+| ID | Sev | Area | Problem | Next step |
+|---|---|---|---|---|
+| [NOS-024] | low | performance | CPU app: the star's orbit was integrated once per clone and each acceleration computed twice | Port the acceleration carry to ng_leapfrog in src/nostos_kernel_body.h (GPU, needs an fp64 GPU to measure) |
+
 ## Know before changing (1)
 
 Gotchas and design notes: nothing to fix, but they explain why the code is the way it is.
@@ -61,7 +69,7 @@ Bug classes found in any bitboinc application ([shared/patterns](shared/patterns
 - Affected: [PAT-002], [PAT-003], [PAT-004], [PAT-005], [PAT-006], [PAT-013], [PAT-018], [PAT-019], [PAT-021], [PAT-022], [PAT-023], [PAT-024], [PAT-027], [PAT-029]
 - Fixed here: [PAT-016]
 - Unchecked: none
-- Checked and clear (not affected, or not applicable): PAT-001, PAT-007, PAT-008, PAT-009, PAT-010, PAT-011, PAT-012, PAT-014, PAT-015, PAT-017, PAT-020, PAT-025, PAT-026, PAT-028, PAT-030
+- Checked and clear (not affected, or not applicable): PAT-001, PAT-007, PAT-008, PAT-009, PAT-010, PAT-011, PAT-012, PAT-014, PAT-015, PAT-017, PAT-020, PAT-025, PAT-026, PAT-028, PAT-030, PAT-031, PAT-032, PAT-033, PAT-034
 
 ## Open issues by platform
 
@@ -102,6 +110,7 @@ Issues tagged `all` are not repeated here.
 [NOS-021]: issues/NOS-021-windows-cuda-build-needs-sm75-and-cuda-13-driver.md
 [NOS-022]: issues/NOS-022-opencl-set-kernel-arg-results-unchecked.md
 [NOS-023]: issues/NOS-023-gpu-build-containers-not-pinned.md
+[NOS-024]: issues/NOS-024-cpu-app-the-star-s-orbit-was-integrated-once-per-clone-and-e.md
 [PAT-002]: shared/patterns/PAT-002-output-after-checkpoint-kept-on-resume.md
 [PAT-003]: shared/patterns/PAT-003-checkpoint-not-written-atomically.md
 [PAT-004]: shared/patterns/PAT-004-checkpoint-not-gated-by-time-to-checkpoint.md
